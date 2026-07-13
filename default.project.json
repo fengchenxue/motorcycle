@@ -4,20 +4,8 @@
     "$className": "DataModel",
 
     "ReplicatedStorage": {
-      "Constants": {
-        "$path": "src/ReplicatedStorage/Constants.luau"
-      },
-      "Utility": {
-        "$path": "src/ReplicatedStorage/Utility"
-      },
       "NeonRun": {
         "$path": "src/ReplicatedStorage/NeonRun"
-      }
-    },
-
-    "ServerScriptService": {
-      "Collision": {
-        "$path": "src/ServerScriptService/Collision"
       }
     },
 

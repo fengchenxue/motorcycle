@@ -1,81 +1,52 @@
-# NeonRun — Roblox source (git + Rojo)
+# NeonRun — 摩托竞速游戏（git + Rojo）
 
-All 94 game scripts were extracted from Studio (place: **比赛**) into `src/`, mirroring the
-Roblox datamodel. Folders = containers; files use Rojo naming:
+代码从 Studio（place：**比赛**）提取到 `src/`，按 Roblox 数据模型层级镜像。
+文件命名遵循 Rojo 约定：`Name.luau` = ModuleScript，`.server.luau` = Script，
+`.client.luau` = LocalScript，`Name/init*.luau` = 带子脚本的容器。
 
-| On disk                | Roblox class |
-|------------------------|--------------|
-| `Name.luau`            | ModuleScript |
-| `Name.server.luau`     | Script       |
-| `Name.client.luau`     | LocalScript  |
-| `Name/init*.luau`      | a script that has child scripts |
+> 原本的 Roblox 官方赛车/竞速模板（Car、CarSpawning、Racing、Constants、Utility、
+> Client 等代码，以及 Car 模型、Garage、Spawners、Race 等实体）已删除，本仓库现在
+> 只包含 NeonRun 摩托游戏。
+
+## 结构
 
 ```
 src/
-  ReplicatedStorage/   Constants, Utility, Client, Car/Scripts, NeonRun/{Modules,Config}
-  ServerScriptService/ CarSpawning, Collision, Racing
-  SoundService/Audio/  Listener, AutoPlayAudio
-  StarterPlayer/StarterPlayerScripts/ NeonRunTestDrive
-  ServerStorage/       NeonRun/Backup/Motorcycle_Original (legacy backup)
+  ReplicatedStorage/NeonRun/
+    Modules/   BikeController, CameraRig, BikeAudio, TunePanel, Spline,
+               EnergyState, CrystalField, AttackSystem, RaceTimer, ConfigLive, SplineViz
+    Config/    Handling, Energy, Medals
+  StarterPlayer/StarterPlayerScripts/NeonRunTestDrive.client.luau   -- 主入口(试驾)
+  SoundService/Audio/   Listener, AutoPlayAudio        -- 通用音频(未纳入 Rojo 同步)
+  ServerStorage/NeonRun/Backup/Motorcycle_Original/    -- 旧摩托模型的遗留脚本(备份)
 ```
 
-## What Rojo currently syncs
+## Rojo 同步
 
-`default.project.json` maps **only the code that is 100% scripts** (no embedded
-non-script instances), so `rojo serve` can never delete anything in your game:
+`default.project.json` 映射了 NeonRun 的全部核心代码 —— 这些脚本都不含内嵌的非脚本
+实例，可以安全地双向对应，`rojo serve` 不会误删游戏里的东西：
 
-- `ReplicatedStorage.Constants`, `ReplicatedStorage.Utility`, `ReplicatedStorage.NeonRun`
-- `ServerScriptService.Collision`
+- `ReplicatedStorage.NeonRun`（Modules + Config 全部）
 - `StarterPlayer.StarterPlayerScripts.NeonRunTestDrive`
 
-Everything else is on disk (git-tracked) but **edited in Studio for now** — see below.
+同步是**单向的：磁盘 → Studio**。在 VS Code 里改这些文件并保存，Studio 会实时更新；
+在 Studio 里改则不会写回磁盘（对已映射脚本请只在磁盘编辑，避免被覆盖）。
 
-## Not yet Rojo-managed (edit in Studio)
+未纳入同步：`SoundService.Audio` 的两个脚本（所在文件夹还有音频设备，留在 Studio
+编辑），以及 `ServerStorage` 里的遗留备份脚本。
 
-These scripts contain **embedded non-script template instances** that the script clones at
-runtime. Mapping them via Rojo would drop those instances, so they're left for Studio:
+## 启动
 
-| Script | Embedded instance |
-|--------|-------------------|
-| `ServerScriptService.CarSpawning` | `SpawnPrompt` (ProximityPrompt) |
-| `ServerScriptService.Racing.RaceManager` | `RaceGui` (BillboardGui) |
-| `ServerScriptService.Racing.RaceManager.createBorderBeams` | `BorderBeam` (Beam) |
-| `ServerScriptService.Racing.Race.holdPlayers` | `RaceLineupAlignPosition` (AlignPosition) |
-| `ReplicatedStorage.Client.GuiModules.LeaderboardGui` | `PlayerFrame` (Frame) |
-| `ReplicatedStorage.Client.CheckpointFlags.createCheckpointFlags` | `CheckpointFlag`, `FinishFlag` (Models) |
-| `ReplicatedStorage.Car.Scripts.Client.Input` | `ControlsGui` (ScreenGui) |
-| `ReplicatedStorage.Car.Scripts.Client.Input.Touch` | `TouchGui` (ScreenGui) |
-| `ReplicatedStorage.Car.Scripts.Client.Speedometer` | `SpeedometerGui` (ScreenGui) |
-| `ReplicatedStorage.Car.Scripts.Client.Camera` | `CycleCameraMode` (BindableEvent) |
-| `ReplicatedStorage.Car.Scripts.Client.ClientController.DestructionHandler` | `BindToCar` (BindableEvent) |
-
-`SoundService.Audio.{Listener,AutoPlayAudio}` are also left unmanaged because the `Audio`
-folder holds audio devices (`MainOutput`, `MainListener`, `Busses`, `Players`).
-
-To bring these under Rojo later, generate `.rbxmx` model files for each embedded instance
-(the `rbxlx-to-rojo` tool does this automatically from a saved `.rbxlx`).
-
-## Setup
-
-```sh
-# 1. Install the toolchain (rokit manages Rojo)
-#    https://github.com/rojo-rbx/rokit
+```powershell
+# 装 Rojo CLI（当前只装了 Studio 插件，还缺 CLI）
+winget install rojo-rbx.rokit
 rokit add rojo-rbx/rojo
 rokit install
 
-# 2. Start the server, then click Connect in the Studio Rojo plugin
-rojo serve
+rojo serve            # 然后在 Studio 的 Rojo 插件里点 Connect
 ```
 
-## The place file
+## 关于 place 文件
 
-`code.rbxlx` (git-ignored) is still the source of truth for everything Rojo doesn't manage
-— geometry, GUIs, models, and the embedded template instances above. Consider committing it
-as a full backup: remove `/code.rbxlx` from `.gitignore` and `git add` it.
-
-## Cleanup TODO
-
-The old placeholder project synced Rojo's default template into Studio, leaving duplicate
-junk scripts (`"Hello, world!"` stubs, 3 copies each):
-`ReplicatedStorage.Shared.Hello`, `ServerScriptService.Server`, `StarterPlayerScripts.Client`.
-Delete these in Studio (or ask Claude to remove them).
+`code.rbxlx`（被 git 忽略）仍是所有非代码内容（地形、摩托模型、场景、GUI）的唯一来源。
+建议在 Studio 里 `File → Save to File` 存一份，并考虑从 `.gitignore` 移除后提交，做整份备份。
