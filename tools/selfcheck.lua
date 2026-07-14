@@ -47,6 +47,11 @@ out.rootAnchored = moto and moto.PrimaryPart and moto.PrimaryPart.Anchored or fa
 local wsNr = workspace:FindFirstChild("NeonRun")
 out.controlPoints = wsNr and wsNr:FindFirstChild("ControlPoints") and #wsNr.ControlPoints:GetChildren() or 0
 
+-- 赛道烘焙(M8.5):Track 文件夹段数 + Rideable Tag 计数(ADR-28 白名单;M4.1 探针切换后即依赖此)
+local track = wsNr and wsNr:FindFirstChild("Track")
+out.trackRoadSegs = track and track:FindFirstChild("Road") and #track.Road:GetChildren() or 0
+out.rideableTags = #game:GetService("CollectionService"):GetTagged("Rideable")
+
 -- 备份与模板隔离
 local ss = game:GetService("ServerStorage"):FindFirstChild("NeonRun")
 out.backup = ss and ss:FindFirstChild("Backup") and ss.Backup:FindFirstChild("Motorcycle_Original") ~= nil

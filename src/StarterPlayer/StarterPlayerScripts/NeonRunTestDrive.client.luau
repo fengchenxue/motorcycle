@@ -109,13 +109,16 @@ bike.Name = "TestDriveBike"
 bike.Parent = workspace
 bike:PivotTo(SPAWN)
 local ctrl = BikeController.new(bike)
--- M4:赛道样条(闭环)注入,重生/坠落判定依赖
+-- M4:赛道样条注入,重生/坠落判定依赖。闭环/开放由 Workspace.NeonRun 的 Closed 属性定(默认 true=环道)。
+-- 开放式赛道(有头有尾)= false;TrackBuilder 读同一属性,两边保持一致(M8.5 开放式支持)。
+local TRACK_CLOSED = cpFolder.Parent:GetAttribute("Closed")
+if TRACK_CLOSED == nil then TRACK_CLOSED = true end
 do
 	local cps = cpFolder:GetChildren()
 	table.sort(cps, function(a, b) return (a:GetAttribute("Index") or 0) < (b:GetAttribute("Index") or 0) end)
 	local pts = {}
 	for _, cp in ipairs(cps) do table.insert(pts, cp.Position) end
-	ctrl:setSpline(Spline.new(pts, true))
+	ctrl:setSpline(Spline.new(pts, TRACK_CLOSED))
 end
 -- M4:硬撞/坠落转场占位——全屏青色故障闪屏,随 TransitionSec 淡出
 local crashFlash = Instance.new("Frame")
@@ -172,7 +175,7 @@ hitboxSel.Transparency = 1
 hitboxSel.Parent = hitboxViz
 
 -- M8:计时器(发车标准化+检查点+四奖牌+一键重开)
-local timer = RaceTimer.new(ctrl, spline, { trackId = "Track01", laps = 1 })
+local timer = RaceTimer.new(ctrl, spline, { trackId = "Track01", laps = 1, closed = TRACK_CLOSED })
 
 -- M7 锻点 HUD:中心十字(锁定=橘黄,在窗口=青绿发光=可斩)
 local reticle = Instance.new("Frame")

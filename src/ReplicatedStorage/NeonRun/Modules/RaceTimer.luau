@@ -21,6 +21,7 @@ local RS = game:GetService("ReplicatedStorage")
 
 local COUNTDOWN_STEPS = { 3, 2, 1 }   -- 固定点火曲线:每数字 1s,总 3s 后绿灯
 local STEP_SEC = 1
+local FINISH_T = 0.997   -- 开放式赛道终点:样条弧长参数达此值即完赛(末端 t 钳在 1,留余量防抖)
 
 local RaceTimer = {}
 RaceTimer.__index = RaceTimer
@@ -31,7 +32,9 @@ function RaceTimer.new(ctrl, spline, opts)
 	self.ctrl = ctrl
 	self.spline = spline
 	self.trackId = opts.trackId or "Track01"
-	self.laps = math.max(1, opts.laps or 1)
+	-- 闭环=可多圈绕回起点;开放式(有头有尾)=单圈,终点=样条末端 t≈1(M8.5 开放式支持)
+	self.closed = opts.closed ~= false
+	self.laps = self.closed and math.max(1, opts.laps or 1) or 1
 	-- 检查点(按序):起点/终点 t=0,中间门均匀布于环上(防倒行/抄近道)
 	self.checkpointTs = opts.checkpoints or { 0.25, 0.5, 0.75 }
 	-- 读奖牌阀值(结构化数据,直接 require)
@@ -172,15 +175,21 @@ function RaceTimer:step(dt)
 				self:_fire("checkpoint", { index = self.nextCheckpoint - 1, total = #self.checkpointTs })
 			end
 		else
-			-- 所有检查点已过,检测终点(t=0/1 包围)
-			if crossedForward(self._prevT, curT, 0) then
+			-- 所有检查点已过,检测终点
+			local reachedEnd
+			if self.closed then
+				reachedEnd = crossedForward(self._prevT, curT, 0)   -- 闭环:绕回起点 t=0/1 包围
+			else
+				reachedEnd = curT >= FINISH_T                        -- 开放式:骑到样条末端
+			end
+			if reachedEnd then
 				self.lapsDone += 1
 				if self.lapsDone >= self.laps then
 					self.state = "finished"
 					self.result = self:_buildResult(self.time)
 					self:_fire("finish", self.result)
 				else
-					-- 下一圈:重置检查点序列
+					-- 下一圈(仅闭环):重置检查点序列
 					self.nextCheckpoint = 1
 				end
 			end
