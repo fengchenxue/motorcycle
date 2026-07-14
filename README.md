@@ -13,9 +13,10 @@
 ```
 src/
   ReplicatedStorage/NeonRun/
-    Modules/   BikeController, CameraRig, BikeAudio, TunePanel, Spline,
-               EnergyState, CrystalField, AttackSystem, RaceTimer, ConfigLive, SplineViz
-    Config/    Handling, Energy, Medals
+    Modules/   BikeController, CameraRig, BikeAudio, TunePanel, Spline, EnergyState,
+               CrystalField, AttackSystem, ShooterField, RaceTimer, ConfigLive,
+               SplineViz, TrackBuilder
+    Config/    Handling, Energy, Medals, Track
   StarterPlayer/StarterPlayerScripts/NeonRunTestDrive.client.luau   -- 主入口(试驾)
   SoundService/Audio/   Listener, AutoPlayAudio        -- 通用音频(未纳入 Rojo 同步)
   ServerStorage/NeonRun/Backup/Motorcycle_Original/    -- 旧摩托模型的遗留脚本(备份)

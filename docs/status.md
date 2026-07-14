@@ -1,27 +1,29 @@
 # STATUS — 现场状态(活文档)
 
-> **维护规则:** 「快照」区覆盖式更新(每次会话结束必改);「ADR 日志」「验收基准」「坑表」追加式,只增不改(防止老争论复活)。
+> **维护规则:** 「快照」「Studio 侧状态」两区覆盖式更新(每次会话结束必改,只放"现在时",历史看 git);「ADR 日志」「验收基准」「坑表」追加式,只增不改(防止老争论复活;被取代的 ADR 用括号注记指向新 ADR)。
 
 ---
 
 ## 快照(覆盖式)
 
-- **更新:** 2026-07-14,战斗+心流会话(Claude Code+MCP):斩击 v0.6 重写+远程敌/快照子弹/弹反落地(验收 11/11);ADR-29 杀敌回能、ADR-30 空中冲刺抉择、**ADR-31 心流接线定稿**(验收 8/8:146 档生效、转向角速度不变、W+S 漏能修复、心流跳 +16.9 studs);全部回归绿。
-- **里程碑:** M0~M2 已验证完成;**M3~M8 已完成(人类报告,细节未回填本档)**;M2.1(S 轻刹+W 别名)**待核实**。**本次落地=M7 斩击 v0.6 对齐重写(ADR-14/16/20 履约)+ ADR-21/22 远程敌与快照弹道首次实现 + 能量核实体(即 M8.1 第 2/3 条的战斗部分)。**队列:**M8.1 剩余(最小点火/磁吸/80 分段 UI/分段门差值/接触擦墙回能字段核查移除)→ M4.1 重生与碰撞确定性 → M8.5 TrackBuilder**。
-- **战斗系统现状(v0.6 对齐,2026-07-14):** `AttackSystem` 重写=按键帧车体局部盒查询(前12/侧7/上下5/后2)+0.1s 输入缓冲+0.3s 空挥硬直+单击多杀+**攻击永不减速**(旧 MissSlowdown 已删);新模块 `ShooterField`=无碰撞射手本体(可斩+30/骑穿零惩罚)+发射瞬间提前量解算的快照子弹(永不追踪,变速变线起跳均为闪避)+弹反=改写目标回飞杀射手(+25)+吃弹=×BulletHitSlowdown 减速一档(零垂直速度);Config 段 Attack→**Combat**(按 E4 键名),Energy 增 CoreGain=25。**二次会话(同日)人类拍板落地:** ParryEnemy 部件已删(人类)、全部静态 SlashEnemy 转为 EnergyCore("斩击回能量",+25),两 Tag 退役出代码;新增斩击判定盒临时可视化 `Combat_DebugHitbox=true`(青=平时/绿=盒内有目标=此刻按必中/白=命中帧;正式版前移除)。**ADR-29 杀敌回能已落地并验证**(能量流水唯一一条 parry+25@击杀帧)。
-- **待拍板(人类,试玩后裁决):** ① 手感参数(后面统一调;`Combat_*` 属性面板实时生效,判定盒跟随变形;心流 AB 旋钮=Handling `Speed_FlowExtraMultiplier` 1.08↔1.05、Energy `FlowExitEnergy` 0↔60);② 射手只对"玩家前方"目标开火、骑过即沉默(是否要背后弹?)。**已拍板归档(2026-07-14):** 心流五项全过并接线(ADR-31,含吃弹不断心流=减速即惩罚);旧 M7 靶去留(ParryEnemy 删、SlashEnemy→能量核);TrackBuilder 弯道 lint 按心流速 146 校验已记入 M8.5 需求。
-- **v0.6 拍板要点:** 反馈永不冻结画面与输入(子弹时间/hitstop 否决)/ 快照弹道=变速即闪避 / lint"主路线永不强制斩击" / 路面远程敌=无碰撞脚本对象 / 接触擦墙回能删除(贴墙 +12/s 保留)/ 空中 W/S 主动输入删除 / S 轻刹保留待 V1 AB / 反重力=上轨演出段(V3)/ 重生=烘焙锚点链(普通回锚点、硬核回分段门)/ 物性声明制(Rideable 白名单)+碰撞零垂直速度。节点联动墙确认维持 V2 不提前。
-- **现场已知问题(人类试玩报告,归 M4.1):** ① 石头碰撞忽"弹飞"忽减速(涌现分类所致,ADR-28);② 撞墙偶发卡出墙外(滑墙入墙/转场期间仍积分,判定五规格修)。**战斗会话新增:** ③ TrackShooter1 落位射线打在高处(y=11),若视觉悬空人类拖正即可(Tag 已带,重注册自动);④ 剑光/弹反音效未做(灰盒,事件钩子 swing/hit/parry/whiff/telegraph/fired/playerHit 已留);⑤ ~~R 重开不重置能量数值~~ **已修(2026-07-13):** EnergyState 新增 `reset()`(熄心流→复位 StartEnergy→广播 changed),客户端 doRestart 已接线 `energy:reset()`;⑥ 满槽 READY 脉冲提示与点燃音画尖峰未做(ADR-31 表现层欠账,随 M8.1 能量条分段 UI 一起)。
-- **M8.5 TrackBuilder 进行中(2026-07-14,Claude Code 无 MCP 会话):** P1 地基已落代码——`Modules/TrackBuilder.luau`(读 Workspace.NeonRun.ControlPoints→建样条→生成 Workspace.NeonRun.Track.Road 灰盒宽走廊[Width40/段长12/下沉1.6]+`CS:AddTag(Rideable)` 自动打 Tag+两侧霓虹条装饰不打Tag)+`Config/Track.luau`(烘焙参数,直 require 不走 Attributes)+`tools/buildtrack.lua`(Edit 驱动)+`selfcheck.lua` 加 trackRoadSegs/rideableTags 项。**弯道半径 lint 已实现**:阈值=心流速145.8÷55°每秒×安全系数1.10≈**167 studs**,沿弧长数值微分曲率找过紧弯。**⚠️ 本环境无 Studio,P1 全部未经烘焙验证**——待带 MCP 会话跑 buildtrack.lua 核对生成件与 lint 输出。P2(判定点入弯/供给密度/机器人完赛)、P3(水晶/核/环语法摆放)、P4(分段门+ADR-27 重生锚点链烘焙,顺带清 M4.1 一半)排队。**开放式赛道支持已加(2026-07-14):** 单一事实源=`Workspace.NeonRun` 的 `Closed` 属性(默认 true=环道,零回归);运行时试驾脚本、TrackBuilder、RaceTimer 三处都读它——`Closed=false` 时样条开放、RaceTimer 终点=样条末端 t≥0.997(非绕回 t=0)、强制单圈。buildtrack.lua 的 `CLOSED` 开关会写该属性令三方一致。**开放式最少需 4 个控制点**(Spline 断言)。⚠️ 仍未 Studio 验证。
-- **⚠️ 接手会话的第一任务(不变):** ① 跑 `tools/selfcheck.lua` 核对 Studio;② 盘点 M2.1/M3~M8 实际交付(模块清单/Config 键/验收数据),**回填本快照与下方基准表**;③ 按 design.md §E4 执行 M8.1(注意 v0.6 增量:接触擦墙回能字段删除/置零)。
-- **Studio 侧状态(2026-07-14 战斗会话增量已记;M3~M8 其余变更仍未回填):**
-  - ReplicatedStorage.NeonRun.Modules 现有 12 件(新增 **ShooterField**);AttackSystem/EnergyState/Handling/Energy/NeonRunTestDrive 均已 `.Source` 推送与 repo 一致(Rojo 再 sync 为幂等);Handling Attributes=**75**(废弃 Attack_* 已清,Combat_* 18 键已种)
-  - Workspace.NeonRun.**CombatRig**(战斗验收台,@(-1200,200,-200) 直道 40×2×800,地板已预打 Rideable Tag):CombatCore/CombatCore2/CombatCorePairL·R(EnergyCore ×4)/CombatShooterA·B(ShooterEnemy)/发车标线;主赛道:TrackShooter1@(-91,11,-440)、TrackShooter2@(-134,5,-515)、旧 M7 靶已核化为 EnergyCore_1~3
-  - Tag 计数:EnergyCore 7 / ShooterEnemy 4 / Destructible 1 / Rideable 1 / SlashEnemy 0 / ParryEnemy 0(两 Tag 退役)
-  - **Rojo serve 确认活跃**:repo 改动即时同步 Studio(本会话实测);`.Source` 手动推送只作断连兜底,推前先查是否已同步
-  - Workspace.NeonRun:ControlPoints CP01~09(Index 属性定序)/SplineViz 快照 ~230 件/SpikeSite 7 台(y≈200~370,M4 验收复用)
-  - Workspace.Motorcycle:PrimaryPart=BikeRoot(2×2.5×7),66 件焊接,零 Sound,Root 锚定停放;备份在 ServerStorage.NeonRun.Backup
-  - 模板 Racing/CarSpawning/Collision 脚本与 RaceGui 均 Disabled(勿删);测试走廊沙丘最高 y=138
+- **更新:** 2026-07-14,文档重组会话(无 Studio):设计评审 → 宪法升 **v0.7**(结构改三部分,商业化/反作弊/社交后置;并入 ADR-29~32;新增 ADR-33 定步长与计时时基、ADR-34 移动端冲刺=按住、ADR-35 V1 范围重排);CLAUDE.md/README 同步。**纯文档会话,零代码改动,回归无需复跑。**
+- **重心:** V1 可玩 demo(ADR-35)。队列:**M8.1 剩余(最小点火/磁吸/80 分段 UI+READY 脉冲/分段门差值/擦墙回能字段核查)→ M4.1(重生与碰撞确定性+ADR-33 定步长迁移)→ M8.5 P2~P4 → M9a/M9b → M9.5 外部试玩 → M10 移动端 = demo 完成**;M11/M12/M13 后置(design 第三部分)。
+- **里程碑:** M0~M2 已验证;M3~M8 代码实证 ✅(基准表 2026-07-13 行);M8 🔶 仅客户端(ADR-32,归 M12);M2.1 待核实;M7 已按 v0.6 重写(战斗验收 11/11);心流 ADR-31 接线(验收 8/8);M8.5 P1 地基已写但**未经 Studio 烘焙验证**(流程见 `docs/handoff-trackbuilder.md`)。
+- **待拍板(人类):** ① 手感参数统一调(`Combat_*`/心流 AB 旋钮属性面板实时生效,判定盒跟随变形);② 射手是否只对"玩家前方"目标开火、骑过即沉默(要不要背后弹);③ **移动端"按住冲刺×点按斩击"右拇指冲突解法(design §4.3;M10 前必须)**。
+- **现场已知问题:** ① 石头碰撞忽"弹飞"忽减速(涌现分类,ADR-28)与 ② 撞墙偶发卡出墙外(滑墙入墙/转场期间仍积分)——均归 M4.1;③ TrackShooter1 落位射线打在高处(y=11),视觉悬空则人类拖正即可(Tag 已带,重注册自动);④ 剑光/弹反音效未做(灰盒;事件钩子 swing/hit/parry/whiff/telegraph/fired/playerHit 已留);⑤ 满槽 READY 脉冲与点燃音画尖峰未做(随 M8.1 分段 UI);⑥ `Combat_DebugHitbox=true` 临时判定盒可视化仍开着(青=平时/绿=盒内有目标=此刻按必中/白=命中帧),正式版前移除。
+- **⚠️ 接手会话第一任务:** ① 跑 `tools/selfcheck.lua` 核对 Studio;② 若带 MCP:按 `docs/handoff-trackbuilder.md` 验证 TrackBuilder P1;③ 然后按队列开工(M8.1 剩余,规格=design §E4;注意接触擦墙回能字段核查移除)。
+
+## Studio 侧状态(覆盖式)
+
+(截至 2026-07-14 战斗会话;本次文档会话无 Studio 变更)
+
+- ReplicatedStorage.NeonRun.Modules:repo=13 件(含 ShooterField、TrackBuilder);Studio 侧以 selfcheck 实测为准(战斗会话时点 12 件,TrackBuilder.luau 经 Rojo 同步后应为 13);AttackSystem/EnergyState/Handling/Energy/NeonRunTestDrive 已与 repo 一致(Rojo 再 sync 幂等);Handling Attributes=**75**(废弃 Attack_* 已清,Combat_* 18 键已种)
+- Workspace.NeonRun.**CombatRig**(战斗验收台,@(-1200,200,-200) 直道 40×2×800,地板已预打 Rideable Tag):CombatCore/CombatCore2/CombatCorePairL·R(EnergyCore ×4)/CombatShooterA·B(ShooterEnemy)/发车标线;主赛道:TrackShooter1@(-91,11,-440)、TrackShooter2@(-134,5,-515)、旧 M7 靶已核化为 EnergyCore_1~3
+- Tag 计数:EnergyCore 7 / ShooterEnemy 4 / Destructible 1 / Rideable 1 / SlashEnemy 0 / ParryEnemy 0(两 Tag 退役)
+- **Rojo serve 确认活跃**:repo 改动即时同步 Studio;`.Source` 手动推送只作断连兜底,推前先查是否已同步
+- Workspace.NeonRun:ControlPoints CP01~09(Index 属性定序)/SplineViz 快照 ~230 件/SpikeSite 7 台(y≈200~370,M4 验收复用)
+- Workspace.Motorcycle:PrimaryPart=BikeRoot(2×2.5×7),66 件焊接,零 Sound,Root 锚定停放;备份在 ServerStorage.NeonRun.Backup
+- 模板 Racing/CarSpawning/Collision 脚本与 RaceGui 均 Disabled(勿删);测试走廊沙丘最高 y=138
 - **仓库:** Rojo 同步(default.project.json 为映射事实源);主力开发=Claude Code;Studio 侧操作走带 MCP 的会话或人类命令栏。
 
 ---
@@ -58,7 +60,7 @@
 - **ADR-4 探针分工:** 中心探针管高度与起飞;前后探针只管姿态法线(前探针提前见下坡会磨掉起飞速度——已发生的回归)。改贴地必读+复跑起飞回归。
 - **ADR-5 弹道脱离:** 地面下坠快于弹道即起飞,vy=坡面爬升速度;坡顶起飞唯一机制,勿另加跳跃力。
 - **ADR-6 碰撞三档:** 擦碰滑墙泄速/硬撞 0.4s 故障转场重生 60% 速/硬核一击死。
-- **ADR-7 输入定稿:** 二元两键转向全平台统一(输入等价=跨平台榜单公平;点放=硬核技巧);**摇杆否决**(竖轴无意义/拇指漂移/遮挡/设备不对称)。W=冲刺别名;S=轻刹 70%(实验开关,刹车优先且冲刺暂停不耗能)。移动端:左双键+右冲刺 toggle+斩击大键+刹车小键。空中 W/S 语境切换,冲刺空中冻结。(空中主动输入部分已被 ADR-24 取代:全删,仅保留冲刺空中冻结等被动规则)
+- **ADR-7 输入定稿:** 二元两键转向全平台统一(输入等价=跨平台榜单公平;点放=硬核技巧);**摇杆否决**(竖轴无意义/拇指漂移/遮挡/设备不对称)。W=冲刺别名;S=轻刹 70%(实验开关,刹车优先且冲刺暂停不耗能)。移动端:左双键+右冲刺 toggle+斩击大键+刹车小键。空中 W/S 语境切换,冲刺空中冻结。(空中主动输入部分已被 ADR-24 取代:全删;"冲刺空中冻结不耗能"再被 ADR-30 作废=空中按住持续耗能;移动端冲刺 toggle 已被 ADR-34 取代=全平台按住)
 - **ADR-8 攻击=斩击+可破坏物;枪否决:** 瞄准=第二方向输入移动端塌地板;抢读路注意力;弹反尖峰爽感优于射击摊平;"劈回子弹杀射手"已含远程幻想。关卡铁律:斩击点只在直线段。
 - **ADR-9 能量三档收入:** 保底水晶+18(CrystalCap=80)/技巧渠道显著更高/开局 50/满槽心流最后一口靠冒险/**禁静止被动回能**。
 - **ADR-10 相机:** 三人称默认+动态档位(常规/冲刺/心流);一人称为设置项。理由:平台习惯/皮肤可见性=付费盘/晕动症/擦墙可读性。
@@ -84,6 +86,9 @@
 - **ADR-30 空中冲刺=真实抉择+心流空中不断(人类拍板 2026-07-14,GR2 断桥语义):** 空中按住冲刺=持续耗能且维持冲刺速度(实测 Rig3 同一跳:按住=135 速多飞 48.2 studs、烧 31 能;松开=速度 0.09s 衰回 100、能量分文不花)——"空中烧不烧能"成为资源抉择,断桥类跳跃的宽度以此差值设计。心流空中不断(起飞不没收心流,滞空烧能即代价),满槽空中点燃亦有效;断心流仅剩:松键/能量跌破 FlowExitEnergy/碰撞坠落。**修宪说明:** ADR-7/24 的"冲刺空中冻结不耗能"条款作废——该条款从未被实现,实测现行为(空中冲刺一直有效且耗能)恰是想要的设计,文本让位于实现;"落地按住续冲"不变。
 - **ADR-32 M8 服务端权威=确认欠账,归 M12(2026-07-13 代码核查后拍板):** 三 agent 并行核查确认 M8(计时/门序校验/四奖牌/一键重开)逻辑完整,但 `RaceTimer` **全程运行在客户端**(TestDrive 灰盒实例化),计时与奖牌可被客户端篡改——尚未兑现设计宪法"计时/奖牌/货币只在服务端产生"(E2/§10/支柱4)。**决策:不在当前阶段重写服务端**——项目无大厅/多人/榜单(M11/M12 未做),此刻搭服务端=对着一个 M11 要重写的客户端做无用功,违"灰盒优先";且 E2 本就把服务端校验+反作弊排在 M12。**兑现方式=显式追踪欠账:** RaceTimer 顶部加欠账注释锚定 M12 迁移路径(纯数据+样条查询,无客户端专属 API,可原样搬到 ServerScriptService,只换宿主与输入源),本条 ADR 归档。**否决"现在就做服务端":**内容层(M9 赛道)与多人层(M11/M12)都不存在,当前只有单机灰盒试驾,客户端计时对灰盒验收零障碍。M12 启动时的义务:门序校验+计时结算迁服务端、RemoteEvent 上报位置样本服务端复算、前十回放人工复核(§10)。
 - **ADR-31 心流定稿=严格兑现式高纯度燃烧(人类五项全拍板并接线 2026-07-14):** ①数值效果**仅冲刺升档** ×`FlowExtraMultiplier=1.08`(总速 145.8);转向插值分母锚定冲刺速 135 封顶——146 时转向角速度与 135 全等(实测 55.0=55.0),唯一手感代价=弯弧 +8%;涌现功能=心流跳比冲刺跳远 ~17 studs(跳距三档语法:巡航 < 冲刺跳 +48 < 心流跳 +65)。②满槽 100=点燃资格,不冲刺则无限期保留;点燃=按冲刺,空中亦可(ADR-30)。③结束=燃尽(`FlowExitEnergy=0` 烧完整管;AB 60=状态式)/ 松键或刹车(冲刺暂停即熄,再进需重新满槽——"点燃时机"就是决策)/ 硬撞坠落;滞空/吃弹/擦墙**不断**;贴墙=续命(净耗 10/s)。④其余全表现层:近肩相机/白光条/引擎音随速/结算页心流里程(埋点)。⑤配套:W+S 同按不耗能落实(ADR-7/M2.1;扣能与心流统一按"冲刺实际生效=按键且未刹车");清 `Energy.FlowSpeedBonus` 死键(速度加成唯一事实源=`Handling.Speed.FlowExtraMultiplier`)。AB 旋钮:加成 1.08↔1.05、ExitEnergy 0↔60,属性面板实时。数值预算存档:一管 4.5s/660 studs/赚 0.34s,90s 赛道 3~4 管 ≈1~1.4s。
+- **ADR-33 固定步长模拟与计时时基(设计评审后人类拍板 2026-07-14):** 模拟=**60Hz 固定步长累加器**(每帧按真实耗时累积、以 1/60 定步消费,单帧最多 3 步≈旧 `dt≤1/20` 钳制语义,超出丢弃=极端卡顿下模拟时间膨胀);渲染=位姿插值(物理/视觉分离的自然延伸);**计时=已消费步数×1/60,与物理同基**;断言:同输入+同赛道 → 任意帧率/设备逐位一致。动机:现状 Heartbeat 变步长(TestDrive:333)下 30fps 手机与 144Hz PC 物理不同——落地检测按帧量化(135 速下每帧 4.5 vs 0.94 studs),多跳赛道累计误差与心流一管收益(0.34s)同量级,支柱 4"跨平台输入等价"无地基;且 RaceTimer 原始 dt 与物理钳制 dt 时基混用(卡顿设备系统性吃亏;反向"修复"则开"制造卡顿=偷时间"口)。既有 Edit 基准全部跑在固定 1/60 → 迁移后回归数字天然不变。sim/wall 偏差校验细则归 M12(design P3.2)。**否决:维持变步长+钳制**——验收体系对 dt 方差结构性失明,M12 输入重演反作弊无从谈起。实现归 M4.1。
+- **ADR-34 移动端冲刺=按住,与 PC 一致(人类拍板 2026-07-14):** design §4.3 原"点按切换"废除;冲刺全平台=按住(现实现本就是 IsKeyDown 按住,TestDrive:341——文本让位于实现,且输入等价铁律天然满足)。衍生张力:右拇指"按住冲刺×点按斩击"互斥,被 ADR-31"松键即熄心流"放大——候选解(斩击移左拇指,§7"斩击点只在直线段"恰好保证彼时左手无转向任务 / 松键 ≤0.15s 宽限 / 接受高操作)列为待拍板,M10 落移动端前必须裁决(design §4.3)。
+- **ADR-35 V1 范围重排与文档重组(人类拍板 2026-07-14):** 重心=**V1 可玩 demo**;商业化(原§10)/社交三层(原§9)/健康指标全表(原§12)移入 design.md 第三部分,**V1 期间勿实现**;新增 **M9.5 外部试玩关口**(5~10 陌生玩家,统一裁决全部手感 AB 与"30 秒上手"地板假设)与 **M13 付费盘占位**(V2);M12 反作弊规格升级=**输入日志服务端重演**(依赖 ADR-33;位置采样降辅助;前十人工复核聚焦"输入是否人类可能"=TAS 裁定);元规则入宪:已拍板 ADR 未并宪前以 ADR 为准;作者牌"零重置"语义定稿(全程无 R/无锚点重生/无硬撞坠落转场;擦碰滑墙吃弹不计,§4.4);§7 lint 增能量供给三桶(红区·非战斗=0 报警,ADR-23 兜底)。
 
 ---
 
@@ -104,3 +109,4 @@
 13. 能量入账断言前先把能量压离 Max/CrystalCap(如 `energy.energy = 20`),否则 +N 被上限截断产生假 FAIL(战斗验收首轮 4 个场景为此误报,机制本身全对)。
 14. 回归基准必须连 setup 一起记(起点/朝向/输入脚本/停止条件),只记结果数字会导致后人无法复现(Rig3 原 177/77 帧即此教训,已用 setup v2 重立)。
 15. execute_luau 的 require 缓存**跨调用存活**:`.Source` 更新后直接 `require(实例)` 会拿到上一次调用的旧编译,验证新代码必须 `require(实例:Clone())` 强制重编译(或重开 Studio);Rojo 同步同理受影响(坑 7 的孪生,已实际踩中一次)。
+16. 宪法漂移会咬人:拍板决策只记 ADR 不修宪时,权威顺序(design > status)会让过期宪法获胜——v0.6 期间 ADR-30/31 与 §4.2/§4.5 正文冲突,新会话按宪法开工会复活已废行为。规则:**拍板即修宪**;来不及就靠元规则(已拍板 ADR 未并宪前以 ADR 为准,v0.7 已入宪)+下次修订必须并入。
