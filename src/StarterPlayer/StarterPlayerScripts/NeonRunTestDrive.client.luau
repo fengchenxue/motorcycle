@@ -293,6 +293,7 @@ local function doRestart()
 	settlePanel.Visible = false
 	attack:reset()      -- R 重开全部重置:靶/核复活(验收断言点)
 	shooters:reset()    -- 敌人复活/子弹清空/节拍归零
+	energy:reset()      -- 能量数值+心流归位(修 status.md 已知问题⑤:R 不重置能量)
 	timer:restart()
 end
 restartBtn.MouseButton1Click:Connect(doRestart)

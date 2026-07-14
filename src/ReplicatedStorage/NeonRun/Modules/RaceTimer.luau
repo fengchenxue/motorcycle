@@ -4,6 +4,11 @@
 -- 四奖牌:铜(完赛)/银/金(吃透赛道)/作者牌(精通机制,可要求零重置)。阀值在 Config/Medals。
 -- 结算命门:"距下一枚奖牌还差 X 秒" + 一键重开。
 -- 状态机:idle → countdown(3-2-1) → racing → finished。
+-- ⚠️ 欠账(ADR-32,归 M12):本模块当前**全程运行在客户端**(TestDrive 灰盒),
+--    计时/门序/奖牌均可被客户端篡改,尚未兑现设计宪法"计时/奖牌只在服务端产生"(E2/§10)。
+--    服务端权威=M12(随反作弊/榜单一起做):门序校验+计时结算迁到 ServerScriptService,
+--    客户端只做表现;RemoteEvent 上报位置样本,服务端复算。本模块为纯数据+样条查询、
+--    无客户端专属 API 依赖,设计为可原样搬到服务端,迁移时只换宿主与输入源。当前灰盒够用。
 -- 用法:
 --   local timer = RaceTimer.new(ctrl, spline, { trackId = "Track01", laps = 1 })
 --   timer:startCountdown()             -- 开始发车序列(车冻结直到绿灯)

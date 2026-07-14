@@ -136,6 +136,14 @@ function EnergyState:step(dt)
 	end
 end
 
+-- R 重开:能量数值与心流全部归位(CLAUDE.md 铁律"R 重开全部重置";旧缺 reset 违反此律)。
+-- 先熄心流(经 flowEnd 同步相机/控制器 flowBoost),再复位到开局能量并广播 changed 刷新 UI。
+function EnergyState:reset()
+	self:_breakFlow("restart")
+	self.energy = math.clamp(self.cfg.get("StartEnergy"), 0, self.max)
+	self:_fire("changed", { energy = self.energy, delta = 0 })
+end
+
 function EnergyState:destroy() end
 
 return EnergyState
