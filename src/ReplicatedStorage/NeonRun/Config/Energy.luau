@@ -15,9 +15,9 @@ return {
 	CoreGain = 25,             -- 能量核 +25(ADR-18,破 Cap;摆偏线与危险位)
 	-- 消耗与心流
 	SprintDrainPerSec = 22,    -- 冲刺耗 22/s
-	FlowThreshold = 100,       -- 满槽进入心流
-	FlowExitEnergy = 60,       -- 心流迟滞下阀:能量降到此值才出心流(防闪烁)
-	FlowSpeedBonus = 1.05,     -- 心流小幅加成(仅能量层标记,未接速度)
-	FlowBreakOnCollision = true, -- 碰撞即断心流
+	FlowThreshold = 100,       -- 满槽=点燃资格(ADR-31;资格无限期保留,不衰减)
+	FlowExitEnergy = 0,        -- 兑现式:烧完整管才结束(ADR-31 拍板;AB 备选 60=状态式高位维持)
+	FlowBreakOnCollision = true, -- 碰撞即断心流(防"零接触冲整段")
+	-- FlowSpeedBonus 死键已清(ADR-31):速度加成唯一事实源=Handling.Speed.FlowExtraMultiplier
 	WallRideMinSpeed = 40,     -- 贴墙回能最低速度(防静止贴墙刷能=禁纯被动)
 }

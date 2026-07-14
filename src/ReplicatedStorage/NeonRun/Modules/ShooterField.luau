@@ -3,12 +3,13 @@
 --   骑穿零惩罚,威胁全在子弹;本体可斩(+30,经 AttackSystem 注册)。永不做碰撞障碍。
 -- 快照弹道(ADR-21):发射瞬间按玩家当帧位置+速度解算提前量,弹道定死永不追踪——
 --   变速(冲刺/轻刹)与变线本身即闪避;空中(vy)不计入预测,起跳也是闪避。
--- 弹反(ADR-16):子弹作为 kind="parry" 注册进 AttackSystem;被斩=改写目标为射手,
---   以 ParryReflectSpeed 肉眼可见飞回,到达即击杀射手(能量在弹反帧已入账,回飞是演出)。
+-- 弹反(ADR-16/29):子弹作为 kind="parry" 注册进 AttackSystem;被斩=改写目标为射手,
+--   以 ParryReflectSpeed 肉眼可见飞回,到达即击杀,+25 于击杀帧入账(ADR-29 杀敌回能:
+--   演出高潮=奖励高潮;射手已死则零入账=纯防御,一个敌人永远只付一份能量)。
 -- 反馈(ADR-20):命中玩家=减速一档(纯水平,零垂直速度),永不冻结画面/输入,不死。
 -- 确定性:固定摆放(Tag: ShooterEnemy),状态机只由距离与计时驱动,R 重开 reset() 全重置。
 -- 用法:
---   local field = ShooterField.new(ctrl, attack)   -- attack=AttackSystem 实例
+--   local field = ShooterField.new(ctrl, attack, energy)   -- attack=AttackSystem;energy=EnergyState(弹反击杀入账用)
 --   field:step(dt)                                 -- 每帧(ctrl:step 后、attack:step 前)
 --   field:reset()                                  -- R 重开:复活敌人/清空子弹/归零节拍
 --   field:on("fired"|"playerHit"|"enemyKilled", fn)
@@ -24,13 +25,14 @@ local TELEGRAPH_COLOR = Color3.fromRGB(255, 255, 255)
 local ShooterField = {}
 ShooterField.__index = ShooterField
 
-function ShooterField.new(ctrl, attack)
+function ShooterField.new(ctrl, attack, energy)
 	local self = setmetatable({}, ShooterField)
 	local nr = RS:WaitForChild("NeonRun")
 	local ConfigLive = require(nr.Modules.ConfigLive)
 	self.cfg = ConfigLive.bind(nr.Config.Handling, require(nr.Config.Handling))
 	self.ctrl = ctrl
 	self.attack = attack
+	self.energy = energy
 	self.enemies = {}          -- [part] = { alive, phase = "idle"|"telegraph"|"cooldown", t, baseColor, baseTransparency }
 	self.bullets = {}          -- array of { part, vel, life, parried, shooterPart }
 	self._events = { fired = {}, playerHit = {}, enemyKilled = {} }
@@ -81,6 +83,9 @@ function ShooterField:_killEnemy(part, cause)
 		if d:IsA("PointLight") or d:IsA("SurfaceLight") or d:IsA("SpotLight") then d.Enabled = false end
 	end
 	if self.attack then self.attack:markDead(part) end
+	-- ADR-29 杀敌回能:弹反的 +25 在此击杀帧入账(上方 alive 卫语句保证一个敌人只付一份;
+	-- 已死射手的回飞弹到达会在卫语句处早退=零入账)
+	if cause == "parryReturn" and self.energy then self.energy:onParry() end
 	self:_fire("enemyKilled", { part = part, cause = cause })
 end
 

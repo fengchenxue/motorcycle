@@ -102,8 +102,10 @@ function EnergyState:step(dt)
 		self:_add(C("WallRideGainPerSec") * dt, "wallride")
 	end
 
+	-- 冲刺实际生效=按着冲刺且未刹车(ADR-7"刹车优先且冲刺暂停不耗能",M2.1 基准"W+S 同按不耗能")
+	local sprintLive = tel.sprinting and not tel.braking
 	-- 消耗:实际生效冲刺时才扣能
-	if tel.sprinting then
+	if sprintLive then
 		local before = self.energy
 		self.energy = math.max(0, self.energy - C("SprintDrainPerSec") * dt)
 		if self.energy ~= before then
@@ -116,16 +118,19 @@ function EnergyState:step(dt)
 		self.ctrl:setSprintAllowed(self.energy > 0)
 	end
 
-	-- 心流判定(迟滞锁定):入场用帧初能量≥阀 + 实际冲刺 + 地面;保持至能量跌到 FlowExitEnergy
+	-- 心流判定(ADR-30/31 严格兑现式):入场=帧初满槽 + 冲刺实际生效(空中亦可点燃);
+	-- 保持=冲刺持续生效且能量未燃尽(FlowExitEnergy 默认 0=烧完整管,AB 60=状态式)。
+	-- 断心流:松键/刹车(冲刺暂停即熄,再进需重新满槽)/燃尽/碰撞坠落(hardHit/fell 订阅);
+	-- 空中不断(ADR-30);吃弹擦墙不断(减速=浪费燃烧时间,惩罚自动折算)。
 	local flowThresh = C("FlowThreshold")
 	local flowExit = C("FlowExitEnergy")
 	if not self.flow then
-		if energyAtFrameStart >= flowThresh and tel.sprinting and tel.grounded then
+		if energyAtFrameStart >= flowThresh and sprintLive then
 			self.flow = true
 			self:_fire("flowStart", {})
 		end
 	else
-		if (not tel.sprinting) or (not tel.grounded) or self.energy < flowExit then
+		if (not sprintLive) or self.energy <= 0 or self.energy < flowExit then
 			self:_breakFlow("drop")
 		end
 	end

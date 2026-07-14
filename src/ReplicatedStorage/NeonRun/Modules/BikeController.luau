@@ -20,6 +20,7 @@ function BikeController.new(model)
 	self.steer = 0
 	self.sprint = false
 	self.sprintAllowed = true  -- M5 能量门:能量耗尽时由 EnergyState 置 false,强制冲刺失效
+	self.flowBoost = false     -- ADR-31 心流冲刺升档:由 EnergyState flowStart/flowEnd 事件驱动
 	self.brake = false      -- M2.1 轻刹输入(S);刹车优先于冲刺
 	self.brakeFrac = 1      -- M2.1 当前速度/base 比例(HUD 遥测用)
 	self.curSpeed = 0
@@ -63,6 +64,7 @@ function BikeController:setSteer(v) self.rawSteer = math.clamp(v, -1, 1) end
 function BikeController:setSprint(b) self.sprint = b == true end
 function BikeController:setSprintAllowed(b) self.sprintAllowed = b ~= false end  -- M5 能量门
 function BikeController:setBrake(b) self.brake = b == true end
+function BikeController:setFlowBoost(b) self.flowBoost = b == true end  -- ADR-31:心流=冲刺倍率升档(唯一数值效果)
 function BikeController:applySpeedMultiplier(m)  -- M7:一次性速度惩罚(斩击失误减速);不低于 0
 	self.curSpeed = math.max(0, self.curSpeed * math.clamp(m, 0, 1))
 end
@@ -119,6 +121,7 @@ function BikeController:getTelemetry()
 		roll = self.visualRoll,
 		braking = self.brake,
 		brakeFrac = self.brakeFrac,
+		flowBoost = self.flowBoost,  -- ADR-31(HUD/仿真断言用)
 		respawning = self.respawnT ~= nil,
 		resetCount = self.resetCount,
 	}
@@ -252,7 +255,9 @@ function BikeController:step(dt)
 	self.steer += math.clamp(self.rawSteer - self.steer, -maxDelta, maxDelta)
 
 	local base = C("Speed", "Base")
-	local maxSpeed = base * C("Speed", "SprintMultiplier")
+	local sprintSpeed = base * C("Speed", "SprintMultiplier")
+	-- ADR-31 心流升档:冲刺目标 ×FlowExtraMultiplier(总速≈146);flowBoost 滞后一帧无害
+	local maxSpeed = sprintSpeed * (self.flowBoost and C("Speed", "FlowExtraMultiplier") or 1)
 	-- M2.1 轻刹(S):刹车优先于冲刺。BrakeEnabled 实验开关关闭则无轻刹。
 	--   目标速度 = base × BrakeFloor;刹车时 sprint 被压制,永不乘 SprintMultiplier(=不抬目标=不耗能)。
 	--   渐入速率 = base×(1-BrakeFloor)/BrakeRampInSec ⇒ 巡航→地板 恰 BrakeRampInSec(clamp 积分,不硬置)。
@@ -280,7 +285,9 @@ function BikeController:step(dt)
 		self.curSpeed *= math.pow(C("Collision", "GrazeSlowdown"), dt * 6)
 	end
 
-	local frac = math.clamp(self.curSpeed / math.max(maxSpeed, 1), 0, 1)
+	-- 转向插值锚定冲刺速度(135)封顶:心流 146 不再降转向角速度(ADR-31,唯一手感代价=弯弧+8%);
+	-- M2 基准"100 速转向率 69.3°/s"依赖此分母,勿改回 maxSpeed
+	local frac = math.clamp(self.curSpeed / math.max(sprintSpeed, 1), 0, 1)
 	local turnRate = math.rad(C("Steering", "TurnRateLowDeg")
 		+ (C("Steering", "TurnRateHighDeg") - C("Steering", "TurnRateLowDeg")) * frac)
 	self.yaw += self.steer * turnRate * dt

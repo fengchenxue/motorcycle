@@ -6,8 +6,8 @@
 --   · 反馈永不冻结画面与输入,无子弹时间/hitstop(ADR-20);剑光纯 VFX 由表现层订阅事件实现
 --   · 窗口时长=盒深÷相对速度,随速自动收窄;InputBufferSec 提前按缓冲
 --   · 斩击点只在直线段(注册期 lint 警告);墙不注册不判定(斩墙零收益,ADR-23)
--- 注册两路:CollectionService Tag(静态摆放:SlashEnemy/Destructible/EnergyCore)+ registerTarget API(运行时对象:子弹/射手本体,由 ShooterField 挂入)。
--- 能量入账统一走本模块(slash/core/parry → EnergyState),数字权威在 EnergyState。
+-- 注册两路:CollectionService Tag(静态摆放:EnergyCore/Destructible)+ registerTarget API(运行时对象:子弹/射手本体,由 ShooterField 挂入)。
+-- 能量入账:slash/core 在斩击帧走本模块;parry 的 +25 在击杀帧由 ShooterField 入账(ADR-29 杀敌回能)。数字权威在 EnergyState。
 -- 用法:
 --   local atk = AttackSystem.new(ctrl, energy, spline)
 --   atk:step(dt)                    -- 每帧(ctrl:step 后):缓冲结算/预告/遥测
@@ -20,7 +20,9 @@ local RS = game:GetService("ReplicatedStorage")
 local CS = game:GetService("CollectionService")
 
 -- 静态 Tag → 结算类型;ShooterEnemy 本体由 ShooterField 经 API 注册,不在此表
-local TAG_KINDS = { SlashEnemy = "slash", Destructible = "slash", EnergyCore = "core" }
+-- SlashEnemy/ParryEnemy Tag 已退役(2026-07-14 人类拍板:静态斩击靶并入能量核;弹反对象=子弹)
+-- Destructible 暂与本体同价,M8.1 落闸门时改走 GateGain(+15)
+local TAG_KINDS = { Destructible = "slash", EnergyCore = "core" }
 
 local AttackSystem = {}
 AttackSystem.__index = AttackSystem
@@ -44,11 +46,6 @@ function AttackSystem.new(ctrl, energy, spline)
 		for _, part in ipairs(CS:GetTagged(tag)) do self:_registerStatic(part, kind) end
 		table.insert(self._conns, CS:GetInstanceAddedSignal(tag):Connect(function(p) self:_registerStatic(p, kind) end))
 		table.insert(self._conns, CS:GetInstanceRemovedSignal(tag):Connect(function(p) self.targets[p] = nil end))
-	end
-	-- 旧 M7 Tag 兼容:ParryEnemy(静态弹反靶)已被真子弹取代(ADR-21/22),按 slash 靶保活并告警
-	for _, part in ipairs(CS:GetTagged("ParryEnemy")) do
-		warn("[AttackSystem] Tag 'ParryEnemy' 已废弃(弹反对象=子弹,ADR-21/22)," .. part.Name .. " 按 SlashEnemy 处理")
-		self:_registerStatic(part, "slash")
 	end
 	return self
 end
@@ -139,9 +136,10 @@ function AttackSystem:_tryResolve()
 		local info = self.targets[part]
 		info.dead = true
 		if info.onHit then info.onHit(part) else defaultKill(part) end
+		-- 能量入账:slash/core=斩击帧(即击杀帧);parry 不在此入账——弹反的 +25 在
+		-- "回飞子弹击杀射手"帧由 ShooterField 结算(ADR-29 杀敌回能:一个敌人只付一份)
 		if self.energy then
-			if info.kind == "parry" then self.energy:onParry()
-			elseif info.kind == "core" then self.energy:onCore()
+			if info.kind == "core" then self.energy:onCore()
 			elseif info.kind == "slash" then self.energy:onSlash() end
 		end
 		if info.kind == "parry" then parried = true end

@@ -5,7 +5,7 @@ return {
 	Speed = {
 		Base = 100,
 		SprintMultiplier = 1.35,
-		FlowExtraMultiplier = 1.08,
+		FlowExtraMultiplier = 1.08, -- 心流冲刺升档(ADR-31 已接线,总速≈146;AB 备选 1.05)
 		RampUpSec = 0.25,       -- 提速到目标的时间(冲刺点火感)
 		RampDownSec = 0.35,     -- 降速时间
 		BrakeEnabled = true,    -- M2.1 轻刹实验开关(ADR-7,待 AB)
@@ -87,6 +87,7 @@ return {
 		InputBufferSec = 0.1,   -- 提前按键缓冲:窗口内目标进盒仍判命中(ADR-16)
 		RecoverySec = 0.3,      -- 空挥硬直(ADR-14:失误代价只在错过能量,永不减速)
 		TelegraphRangeStuds = 55, -- 目标进入此距离触发音画预告(HUD/音效,非判定)
+		DebugHitbox = true,     -- 【临时调试】斩击判定盒可视化(青=平时/绿=盒内有目标/白=命中帧;正式版前移除)
 		StraightMaxTurnDeg = 3, -- 布置 lint:目标所在点 8studs 转角 < 此值才算直线段
 		GateLinkWindowSec = 2.5, -- V2 预埋:节点联动墙开启时长(ADR-19)
 		-- 远程敌与快照弹道(ADR-21/22)

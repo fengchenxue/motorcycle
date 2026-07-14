@@ -138,19 +138,38 @@ local audio = BikeAudio.new(bike.PrimaryPart)
 -- M5:能量系统(订阅 ctrl 事件) + 水晶场(拾取→加能);心流→相机档
 local energy = EnergyState.new(ctrl)
 local field = CrystalField.new(function() energy:addCrystal() end)
-energy:on("flowStart", function() rig:setFlow(true) end)
-energy:on("flowEnd", function() rig:setFlow(false) end)
+energy:on("flowStart", function() rig:setFlow(true); ctrl:setFlowBoost(true) end)   -- ADR-31 心流升档接线
+energy:on("flowEnd", function() rig:setFlow(false); ctrl:setFlowBoost(false) end)
 
 -- M7:攻击系统(自动锁定·时机判定·斩击点只在直线段);命中回能由 AttackSystem 内部调 energy
 local spline = ctrl.spline
 local attack = AttackSystem.new(ctrl, energy, spline)
 
 -- 远程敌与快照子弹(ADR-21/22):射手本体/子弹经 AttackSystem 注册,弹反=改写目标为射手
-local shooters = ShooterField.new(ctrl, attack)
+local shooters = ShooterField.new(ctrl, attack, energy)
 shooters:on("playerHit", function()
 	crashFlash.BackgroundColor3 = Color3.fromRGB(255, 60, 110)
 	crashFlash.BackgroundTransparency = 0.55
 end)
+
+-- 【临时调试】斩击判定盒可视化(开关=Handling 属性 Combat_DebugHitbox,属性面板实时切;正式版前移除)
+-- 盒随物理系(physPos+yaw)走,尺寸实时读 Combat_Hitbox* 四键——调参数时盒子跟着变
+local handlingCfg = RS:WaitForChild("NeonRun"):WaitForChild("Config"):WaitForChild("Handling")
+local hitboxViz = Instance.new("Part")
+hitboxViz.Name = "SlashHitboxViz"
+hitboxViz.Anchored = true
+hitboxViz.CanCollide = false; hitboxViz.CanTouch = false; hitboxViz.CanQuery = false
+hitboxViz.CastShadow = false
+hitboxViz.Material = Enum.Material.ForceField
+hitboxViz.Color = Color3.fromRGB(0, 220, 255)
+hitboxViz.Transparency = 1
+hitboxViz.Parent = workspace
+local hitboxSel = Instance.new("SelectionBox")
+hitboxSel.Adornee = hitboxViz
+hitboxSel.LineThickness = 0.04
+hitboxSel.Color3 = Color3.fromRGB(0, 220, 255)
+hitboxSel.Transparency = 1
+hitboxSel.Parent = hitboxViz
 
 -- M8:计时器(发车标准化+检查点+四奖牌+一键重开)
 local timer = RaceTimer.new(ctrl, spline, { trackId = "Track01", laps = 1 })
@@ -388,6 +407,25 @@ RunS.RenderStepped:Connect(function(dt)
 	else rc = Color3.fromRGB(180, 200, 220) end                     -- 平时
 	local retAlpha = (at.telegraph or attackFlash ~= 0) and 0 or 0.55
 	for _, b in ipairs(retParts) do b.BackgroundColor3 = rc; b.BackgroundTransparency = retAlpha end
+	-- 【临时调试】判定盒渲染:青=平时,绿=盒内有目标(此刻按=必中),白=命中帧
+	if handlingCfg:GetAttribute("Combat_DebugHitbox") then
+		local fw = handlingCfg:GetAttribute("Combat_HitboxForward") or 12
+		local bk = handlingCfg:GetAttribute("Combat_HitboxBack") or 2
+		local sd = handlingCfg:GetAttribute("Combat_HitboxSide") or 7
+		local up = handlingCfg:GetAttribute("Combat_HitboxUp") or 5
+		hitboxViz.Size = Vector3.new(sd * 2, up * 2, fw + bk)
+		hitboxViz.CFrame = CFrame.new(ctrl.physPos) * CFrame.Angles(0, ctrl.yaw, 0) * CFrame.new(0, 0, -(fw - bk) / 2)
+		local hc
+		if attackFlash > 0 then hc = Color3.fromRGB(255, 255, 255)
+		elseif at.inVolume then hc = Color3.fromRGB(60, 255, 140)
+		else hc = Color3.fromRGB(0, 220, 255) end
+		hitboxViz.Color = hc; hitboxSel.Color3 = hc
+		hitboxViz.Transparency = 0.85
+		hitboxSel.Transparency = 0.2
+	else
+		hitboxViz.Transparency = 1
+		hitboxSel.Transparency = 1
+	end
 	if attackFlash > 0 then attackFlash = math.max(0, attackFlash - dt * 3)
 	elseif attackFlash < 0 then attackFlash = math.min(0, attackFlash + dt * 3) end
 	local sprintOn = t.sprinting and t.speed > 100
