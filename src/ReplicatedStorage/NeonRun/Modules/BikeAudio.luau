@@ -51,11 +51,13 @@ function BikeAudio:update(tele, dt)
 		+ (C("Sound", "EnginePitchMax") - C("Sound", "EnginePitchMin")) * frac
 	if not self.engine.IsPlaying then self.engine:Play() end
 	-- 层2:冲刺点火(上升沿)
-	if tele.sprint and not self.prevSprint then
+	-- 读 sprinting(=有效冲刺,含最小点火尾段、且能量允许)而非原始 sprint:
+	-- 空箱按键 0 能量时 sprinting 恒 false → 不放点火 whoosh,干点火"咔哒"由 UI 空箱反馈出(ADR-13)
+	if tele.sprinting and not self.prevSprint then
 		self.ignition.Volume = C("Sound", "IgnitionVolume")
 		self.ignition:Play()
 	end
-	self.prevSprint = tele.sprint
+	self.prevSprint = tele.sprinting == true
 	-- 层3:擦墙呼啸(wallContact 上升沿 + 冷却)
 	if tele.wallContact and not self.prevWall
 		and self.time - self.whooshAt >= C("Sound", "WhooshCooldownSec") then

@@ -21,8 +21,8 @@ local CS = game:GetService("CollectionService")
 
 -- 静态 Tag → 结算类型;ShooterEnemy 本体由 ShooterField 经 API 注册,不在此表
 -- SlashEnemy/ParryEnemy Tag 已退役(2026-07-14 人类拍板:静态斩击靶并入能量核;弹反对象=子弹)
--- Destructible 暂与本体同价,M8.1 落闸门时改走 GateGain(+15)
-local TAG_KINDS = { Destructible = "slash", EnergyCore = "core" }
+-- Destructible=能量闸门:斩开通行 +GateGain(+15,交互矩阵 §4.6);捷径挡板/承重墙(不可砍/0 收益)不打此 Tag
+local TAG_KINDS = { Destructible = "gate", EnergyCore = "core" }
 
 local AttackSystem = {}
 AttackSystem.__index = AttackSystem
@@ -140,7 +140,8 @@ function AttackSystem:_tryResolve()
 		-- "回飞子弹击杀射手"帧由 ShooterField 结算(ADR-29 杀敌回能:一个敌人只付一份)
 		if self.energy then
 			if info.kind == "core" then self.energy:onCore()
-			elseif info.kind == "slash" then self.energy:onSlash() end
+			elseif info.kind == "gate" then self.energy:onGate()       -- 能量闸门 +15
+			elseif info.kind == "slash" then self.energy:onSlash() end -- 远程敌本体 +30(ShooterField 注册)
 		end
 		if info.kind == "parry" then parried = true end
 		table.insert(kinds, info.kind)

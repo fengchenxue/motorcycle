@@ -83,6 +83,35 @@ energyText.TextSize = 13
 energyText.Font = Enum.Font.GothamBold
 energyText.ZIndex = 3
 energyText.Parent = energyBarBG
+-- M8.1 能量条红区(80~100)独立段:冒险段与蓝区分色渲染(80 分段义务,§4.5)
+local energyBarRed = Instance.new("Frame")
+energyBarRed.AnchorPoint = Vector2.new(0, 0.5)
+energyBarRed.Position = UDim2.new(0.8, 0, 0.5, 0)
+energyBarRed.Size = UDim2.new(0, 0, 1, -4)
+energyBarRed.BackgroundColor3 = Color3.fromRGB(255, 200, 60)
+energyBarRed.BorderSizePixel = 0
+energyBarRed.ZIndex = 1
+energyBarRed.Parent = energyBarBG
+-- M8.1 满槽 READY 脉冲描边(ADR-31 表现层:满槽 100=点燃资格)
+local readyStroke = Instance.new("UIStroke")
+readyStroke.Thickness = 0
+readyStroke.Color = Color3.fromRGB(255, 255, 255)
+readyStroke.Transparency = 1
+readyStroke.Parent = energyBarBG
+-- M8.1 "蓝区已满"轻提示 toast(capFull 事件;ADR-17 系统可拒绝但不能沉默)
+local capFullToast = Instance.new("TextLabel")
+capFullToast.AnchorPoint = Vector2.new(0.5, 1)
+capFullToast.Position = UDim2.new(0.5, 0, 0, -6)
+capFullToast.Size = UDim2.new(0, 160, 0, 20)
+capFullToast.BackgroundTransparency = 1
+capFullToast.TextColor3 = Color3.fromRGB(120, 220, 255)
+capFullToast.TextStrokeTransparency = 0.4
+capFullToast.TextSize = 14
+capFullToast.Font = Enum.Font.GothamMedium
+capFullToast.Text = "蓝区已满"
+capFullToast.TextTransparency = 1
+capFullToast.ZIndex = 4
+capFullToast.Parent = energyBarBG
 
 -- 速度线占位:两侧斜线,冲刺时渐显 + 闪烁
 local lines = {}
@@ -146,6 +175,11 @@ local energy = EnergyState.new(ctrl)
 local field = CrystalField.new(function() energy:addCrystal() end)
 energy:on("flowStart", function() rig:setFlow(true); ctrl:setFlowBoost(true) end)   -- ADR-31 心流升档接线
 energy:on("flowEnd", function() rig:setFlow(false); ctrl:setFlowBoost(false) end)
+-- M8.1 能量表现层:空箱红闪 / 点火尖峰 / 蓝区已满 toast(计时器在 RenderStepped 衰减)
+local emptyFlash, igniteFlash, capFullT = 0, 0, 0
+energy:on("emptyBox", function() emptyFlash = 1 end)   -- 0 能量按键:条闪红+抖动(干点火;咔哒音待 assetId)
+energy:on("ignite", function() igniteFlash = 1 end)    -- 点火:条白亮尖峰
+energy:on("capFull", function() capFullT = 0.8 end)    -- 蓝区已满:toast 0.8s
 
 -- M7:攻击系统(自动锁定·时机判定·斩击点只在直线段);命中回能由 AttackSystem 内部调 energy
 local spline = ctrl.spline
@@ -318,6 +352,89 @@ timer:on("finish", function(res)
 end)
 timer:on("go", function() countdownLabel.Text = "GO!" end)
 
+-- M8.1 分段门:把校验门渲染为可见霓虹拱门 + 过门弹 ±差值(§3.2;参照先用 PB/奖牌线,幽灵实体 M12)
+-- 拱门=纯视觉标记(CanQuery=false 不参与碰撞/贴地);过门判定仍走 RaceTimer 参数化 t。
+local gateArches = {}   -- [index] = { Part,.. }
+local gateFlash = {}    -- [index] = 剩余闪光时长
+do
+	local checkpointTs = timer.checkpointTs or {}
+	local archFolder = Instance.new("Folder")
+	archFolder.Name = "NeonRunSegmentGates"
+	archFolder.Parent = workspace
+	local HALF_W, HEIGHT, BAR = 14, 15, 1.2
+	local function mkBar(model, size, cframe)
+		local p = Instance.new("Part")
+		p.Anchored = true; p.CanCollide = false; p.CanTouch = false; p.CanQuery = false
+		p.CastShadow = false
+		p.Material = Enum.Material.Neon
+		p.Color = Color3.fromRGB(0, 220, 255)
+		p.Size = size
+		p.CFrame = cframe
+		p.Parent = model
+		return p
+	end
+	for i, t in ipairs(checkpointTs) do
+		local cf = spline:GetCFrame(t)
+		local base, right, up = cf.Position, cf.RightVector, Vector3.new(0, 1, 0)
+		local model = Instance.new("Model")
+		model.Name = "SegGate" .. i
+		local frames = {
+			mkBar(model, Vector3.new(BAR, HEIGHT, BAR), CFrame.new(base + right * HALF_W + up * (HEIGHT / 2))),
+			mkBar(model, Vector3.new(BAR, HEIGHT, BAR), CFrame.new(base - right * HALF_W + up * (HEIGHT / 2))),
+			mkBar(model, Vector3.new(HALF_W * 2 + BAR, BAR, BAR), CFrame.new(base + up * HEIGHT)),
+		}
+		model.Parent = archFolder
+		gateArches[i] = frames
+		gateFlash[i] = 0
+	end
+end
+-- 过门差值浮字(0.8s 淡出;绿=领先 / 红=落后 / 青=无参照只闪色)
+local diffLabel = Instance.new("TextLabel")
+diffLabel.AnchorPoint = Vector2.new(0.5, 0.5)
+diffLabel.Position = UDim2.new(0.5, 0, 0.3, 0)
+diffLabel.Size = UDim2.new(0, 240, 0, 56)
+diffLabel.BackgroundTransparency = 1
+diffLabel.TextStrokeTransparency = 0.3
+diffLabel.TextColor3 = Color3.fromRGB(120, 220, 255)
+diffLabel.TextSize = 40
+diffLabel.Font = Enum.Font.GothamBold
+diffLabel.Text = ""
+diffLabel.TextTransparency = 1
+diffLabel.ZIndex = 6
+diffLabel.Parent = gui
+local diffT = 0
+-- HUD 追赶角标(§3.2 常驻"追赶:<参照>")
+local chaseLabel = Instance.new("TextLabel")
+chaseLabel.AnchorPoint = Vector2.new(1, 0)
+chaseLabel.Position = UDim2.new(1, -12, 0, 92)
+chaseLabel.Size = UDim2.new(0, 170, 0, 20)
+chaseLabel.BackgroundTransparency = 1
+chaseLabel.TextXAlignment = Enum.TextXAlignment.Right
+chaseLabel.TextColor3 = Color3.fromRGB(150, 200, 230)
+chaseLabel.TextSize = 14
+chaseLabel.Font = Enum.Font.GothamMedium
+chaseLabel.Text = ""
+chaseLabel.Parent = gui
+local CHASE_CN = { PB = "PB", Bronze = "铜牌线", Silver = "银牌线", Gold = "金牌线", Author = "作者线" }
+timer:on("checkpoint", function(p)
+	local idx = p.index
+	local ahead = p.diff and p.diff < 0
+	local col = (p.diff == nil) and Color3.fromRGB(0, 220, 255)
+		or (ahead and Color3.fromRGB(80, 255, 140) or Color3.fromRGB(255, 90, 110))
+	if p.diff then
+		diffLabel.Text = string.format("%s%.2f", ahead and "−" or "+", math.abs(p.diff))
+	else
+		diffLabel.Text = string.format("分段 %d/%d", idx, p.total)
+	end
+	diffLabel.TextColor3 = col
+	diffT = 0.8
+	local arch = gateArches[idx]
+	if arch then
+		for _, f in ipairs(arch) do f.Color = col end
+		gateFlash[idx] = 0.8
+	end
+end)
+
 -- M8 发车标准化:开局即进入倒计时
 timer:startCountdown()
 
@@ -365,6 +482,7 @@ RunS.Heartbeat:Connect(function(dt)
 		timerLabel.Text = string.format("%.2f", rt.time)
 	end
 	cpLabel.Text = string.format("检查点 %d/%d", rt.checkpoint, rt.totalCheckpoints)
+	chaseLabel.Text = rt.chasing and ("追赶: " .. (CHASE_CN[rt.chasing] or rt.chasing)) or ""
 	label.Text = string.format("M8 计时  |  速度 %d  |  能量 %d  |  %s%s%s%s  |  A/D·W/Shift冲·S刹·J斩·R重开",
 		math.floor(t.speed + 0.5),
 		math.floor(et.energy + 0.5),
@@ -392,19 +510,66 @@ RunS.RenderStepped:Connect(function(dt)
 	clock += dt
 	local t = ctrl:getTelemetry()
 	local et = energy:getTelemetry()
-	-- M5 能量条:宽度按比例;冒险段(>80)金色,心流白光,空槽暗红,否则青色
+	-- M5+M8.1 能量条:0~80 蓝区 / 80~100 红区双段渲染 + READY 脉冲 + 空箱红闪 + 点火尖峰
 	local frac = et.frac
-	energyBarFill.Size = UDim2.new(frac, -4, 1, -4)
+	local blueFrac = math.min(frac, 0.8)
+	local redFrac = math.clamp(frac - 0.8, 0, 0.2)
+	energyBarFill.Size = UDim2.new(blueFrac, -4, 1, -4)
+	energyBarRed.Size = UDim2.new(redFrac, 0, 1, -4)
+	local blueCol, redCol
 	if et.flow then
-		energyBarFill.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-	elseif frac > 0.8 then
-		energyBarFill.BackgroundColor3 = Color3.fromRGB(255, 200, 60)
+		blueCol, redCol = Color3.fromRGB(255, 255, 255), Color3.fromRGB(255, 255, 255)  -- 心流白光
 	elseif et.sprintGated then
-		energyBarFill.BackgroundColor3 = Color3.fromRGB(120, 40, 40)
+		blueCol, redCol = Color3.fromRGB(120, 40, 40), Color3.fromRGB(120, 40, 40)      -- 空槽暗红
 	else
-		energyBarFill.BackgroundColor3 = Color3.fromRGB(0, 220, 255)
+		blueCol, redCol = Color3.fromRGB(0, 220, 255), Color3.fromRGB(255, 200, 60)      -- 蓝区青 / 红区金
 	end
-	energyText.Text = et.flow and "心流 FLOW" or string.format("能量 %d", math.floor(et.energy + 0.5))
+	if emptyFlash > 0 then   -- 空箱:整条闪红 + 抖动
+		blueCol, redCol = Color3.fromRGB(255, 60, 60), Color3.fromRGB(255, 60, 60)
+		emptyFlash = math.max(0, emptyFlash - dt / 0.25)
+	end
+	if igniteFlash > 0 then  -- 点火尖峰:白亮一下
+		blueCol = blueCol:Lerp(Color3.fromRGB(255, 255, 255), igniteFlash)
+		redCol = redCol:Lerp(Color3.fromRGB(255, 255, 255), igniteFlash)
+		igniteFlash = math.max(0, igniteFlash - dt / 0.2)
+	end
+	energyBarFill.BackgroundColor3 = blueCol
+	energyBarRed.BackgroundColor3 = redCol
+	energyBarBG.Position = UDim2.new(0.5, (emptyFlash > 0 and math.sin(clock * 80) * 3 or 0), 1, -24)
+	-- 满槽 READY 脉冲(未点燃):描边呼吸 + 文案(ADR-31 表现层)
+	if et.ready then
+		local pulse = 0.5 + 0.5 * math.sin(clock * 8)
+		readyStroke.Thickness = 1 + 1.5 * pulse
+		readyStroke.Transparency = 0.2 + 0.5 * (1 - pulse)
+		energyText.Text = "READY ▸ 点火"
+	else
+		readyStroke.Thickness = 0
+		readyStroke.Transparency = 1
+		energyText.Text = et.flow and "心流 FLOW" or string.format("能量 %d", math.floor(et.energy + 0.5))
+	end
+	-- 蓝区已满 toast 淡出(0.8s)
+	if capFullT > 0 then
+		capFullT = math.max(0, capFullT - dt)
+		capFullToast.TextTransparency = 1 - capFullT / 0.8
+	else
+		capFullToast.TextTransparency = 1
+	end
+	-- 分段门差值浮字淡出(0.8s)+ 拱门闪光复位 + 追赶角标
+	if diffT > 0 then
+		diffT = math.max(0, diffT - dt)
+		diffLabel.TextTransparency = 1 - diffT / 0.8
+	else
+		diffLabel.TextTransparency = 1
+	end
+	for i, remain in pairs(gateFlash) do
+		if remain > 0 then
+			local nremain = math.max(0, remain - dt)
+			gateFlash[i] = nremain
+			if nremain == 0 and gateArches[i] then
+				for _, f in ipairs(gateArches[i]) do f.Color = Color3.fromRGB(0, 220, 255) end
+			end
+		end
+	end
 	-- M7 锻点颜色:可斩(在窗口)=青绿发光,锁定=橘黄,无=淡白低调;命中/失误闪光
 	local at = attack:getTelemetry()
 	local rc

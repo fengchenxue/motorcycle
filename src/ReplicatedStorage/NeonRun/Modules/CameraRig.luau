@@ -75,7 +75,7 @@ function CameraRig:update(dt)
 
 	-- 冲刺震动(平滑噪声,不打断跟随)
 	local tele = ctrl:getTelemetry()
-	if tele.sprint and tele.grounded then
+	if tele.sprinting and tele.grounded then  -- sprinting=有效冲刺(含最小点火尾段),松键不闪 FOV/震动(ADR-13)
 		local a = C("Camera", "ShakeSprint")
 		local f = C("Camera", "ShakeFreqHz")
 		camPos += Vector3.new(
@@ -92,7 +92,7 @@ function CameraRig:update(dt)
 	if self.camera then
 		self.camera.CameraType = Enum.CameraType.Scriptable
 		self.camera.CFrame = CFrame.lookAt(camPos, lookAt)
-		local targetFov = self.flow and C("Camera", "FlowFOV") or (tele.sprint and C("Camera", "FOVSprint") or C("Camera", "FOVBase"))
+		local targetFov = self.flow and C("Camera", "FlowFOV") or (tele.sprinting and C("Camera", "FOVSprint") or C("Camera", "FOVBase"))
 		local fovAlpha = 1 - math.exp(-dt / math.max(C("Camera", "FOVLerpSec"), 1e-3))
 		self.camera.FieldOfView += (targetFov - self.camera.FieldOfView) * fovAlpha
 	end

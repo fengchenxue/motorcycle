@@ -50,6 +50,11 @@ function RaceTimer.new(ctrl, spline, opts)
 	self.nextCheckpoint = 1     -- 下一个必须穿过的检查点索引
 	self.result = nil
 	self._prevT = 0
+	-- M8.1 分段门差值(§3.2):参照 = 本局 PB 各段时刻(有则),否则奖牌线时间表(幽灵实体 M12 补)
+	self.refMedal = opts.refMedal or "Silver"   -- 无 PB 时追的奖牌线(默认银;opts 可覆盖)
+	self.pbTime = nil                           -- 会话内 PB(M12 持久化/幽灵替代)
+	self.pbSplits = nil                         -- 会话内 PB 各段过门时刻
+	self.splits = {}                            -- 本局各段过门时刻(startCountdown 清空)
 	self._events = { countdown = {}, go = {}, checkpoint = {}, finish = {}, restart = {} }
 	return self
 end
@@ -69,6 +74,7 @@ function RaceTimer:startCountdown()
 	self.lapsDone = 0
 	self.nextCheckpoint = 1
 	self.result = nil
+	self.splits = {}   -- 本局分段清零(参照仍是上一局 PB / 奖牌线)
 	if self.ctrl and self.ctrl.physPos and self.spline then
 		self._prevT = select(1, self.spline:NearestPoint(self.ctrl.physPos))
 	end
@@ -124,6 +130,20 @@ function RaceTimer:_buildResult(time)
 	}
 end
 
+-- 分段门参照(§3.2):本局 PB 各段时刻优先,否则奖牌线时间表(线性估计,占位;真实分段来自 M12 幽灵)。
+-- 返回 refSplitTime, refName(refName="PB" 或奖牌英文键;TestDrive 本地化);无参照返回 nil。
+function RaceTimer:_refSplit(index)
+	if self.pbSplits and self.pbSplits[index] then
+		return self.pbSplits[index], "PB"
+	end
+	local thresh = self.thresholds and self.thresholds[self.refMedal]
+	local t = self.checkpointTs[index]
+	if thresh and t then
+		return thresh * t, self.refMedal   -- 线性估计:奖牌线总时间 × 该门弧长参数
+	end
+	return nil, nil
+end
+
 function RaceTimer:step(dt)
 	if self.state == "countdown" then
 		-- 车冻结(双保险:速度归零),倒数
@@ -172,7 +192,11 @@ function RaceTimer:step(dt)
 			local gateT = self.checkpointTs[self.nextCheckpoint]
 			if crossedForward(self._prevT, curT, gateT) then
 				self.nextCheckpoint += 1
-				self:_fire("checkpoint", { index = self.nextCheckpoint - 1, total = #self.checkpointTs })
+				local idx = self.nextCheckpoint - 1
+				self.splits[idx] = self.time
+				local refT, refName = self:_refSplit(idx)
+				local diff = refT and (self.time - refT) or nil   -- <0 领先(绿)/ >0 落后(红)/ nil 无参照(只闪色)
+				self:_fire("checkpoint", { index = idx, total = #self.checkpointTs, split = self.time, diff = diff, ref = refName })
 			end
 		else
 			-- 所有检查点已过,检测终点
@@ -187,6 +211,11 @@ function RaceTimer:step(dt)
 				if self.lapsDone >= self.laps then
 					self.state = "finished"
 					self.result = self:_buildResult(self.time)
+					-- 更新会话 PB(更快或首次;本局 checkpoint 差值比的是上一版 PB,故先算结果后更新)
+					if not self.pbTime or self.time < self.pbTime then
+						self.pbTime = self.time
+						self.pbSplits = table.clone(self.splits)
+					end
 					self:_fire("finish", self.result)
 				else
 					-- 下一圈(仅闭环):重置检查点序列
@@ -212,6 +241,7 @@ function RaceTimer:getTelemetry()
 		laps = self.laps,
 		resetCount = self.resetCount,
 		medal = self.result and self.result.medal or nil,
+		chasing = self.pbSplits and "PB" or self.refMedal,   -- HUD 追赶角标(TestDrive 本地化)
 	}
 end
 

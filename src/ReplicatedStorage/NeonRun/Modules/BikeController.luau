@@ -19,6 +19,7 @@ function BikeController.new(model)
 	self.rawSteer = 0
 	self.steer = 0
 	self.sprint = false
+	self.forcedSprint = false   -- M8.1 最小点火尾段:松键后 EnergyState 仍强制维持冲刺速直到烧满 0.4s(ADR-13)
 	self.sprintAllowed = true  -- M5 能量门:能量耗尽时由 EnergyState 置 false,强制冲刺失效
 	self.flowBoost = false     -- ADR-31 心流冲刺升档:由 EnergyState flowStart/flowEnd 事件驱动
 	self.brake = false      -- M2.1 轻刹输入(S);刹车优先于冲刺
@@ -70,6 +71,7 @@ end
 
 function BikeController:setSteer(v) self.rawSteer = math.clamp(v, -1, 1) end
 function BikeController:setSprint(b) self.sprint = b == true end
+function BikeController:setForcedSprint(b) self.forcedSprint = b == true end  -- M8.1 最小点火尾段(ADR-13):松键后仍强制冲刺
 function BikeController:setSprintAllowed(b) self.sprintAllowed = b ~= false end  -- M5 能量门
 function BikeController:setBrake(b) self.brake = b == true end
 function BikeController:setFlowBoost(b) self.flowBoost = b == true end  -- ADR-31:心流=冲刺倍率升档(唯一数值效果)
@@ -111,6 +113,7 @@ function BikeController:teleport(cf, keepSpeedFrac)
 	self.steer = 0
 	self.rawSteer = 0
 	self.brake = false
+	self.forcedSprint = false   -- 重生/传送清空最小点火尾段(下一帧 EnergyState 重驱)
 	self.brakeFrac = 1
 	self.wallContact = false
 	self._prevWall = false
@@ -131,7 +134,10 @@ function BikeController:getTelemetry()
 		grounded = self.grounded,
 		steer = self.steer,
 		sprint = self.sprint,
-		sprinting = self.sprint and self.sprintAllowed,  -- M5:实际生效的冲刺(区分“按了但无能量”)
+		-- M5+M8.1:实际生效冲刺 =(玩家按住 或 最小点火强制尾段)且能量允许。
+		-- A/V 消费者(相机 FOV/震动、引擎点火音、速度线)读此位=尾段内不掉档(ADR-13 防毁视听);
+		-- 能量逻辑读 sprint(原始输入),不读此位,故无反馈环。
+		sprinting = (self.sprint or self.forcedSprint) and self.sprintAllowed,
 		lastHitAngle = self.lastHitAngle,
 		wallContact = self.wallContact,
 		contactPoint = self.lastContactPoint,
@@ -348,7 +354,9 @@ function BikeController:step(dt)
 	local brakeOn = self.brake and (C("Speed", "BrakeEnabled") ~= false)
 	local brakeFloor = C("Speed", "BrakeFloor")
 	local brakeRampIn = math.max(C("Speed", "BrakeRampInSec"), 1e-3)
-	local sprintEff = self.sprint and self.sprintAllowed
+	-- M8.1:实际冲刺 = (玩家按住 或 最小点火强制尾段)且 能量允许(ADR-13)。
+	-- 按住冲刺时 forcedSprint 恒为 false(EnergyState 只在"松键但未烧满 0.4s"时置 true),故按住路径逐位不变。
+	local sprintEff = (self.sprint or self.forcedSprint) and self.sprintAllowed
 	local targetSpeed
 	if brakeOn then
 		targetSpeed = base * brakeFloor

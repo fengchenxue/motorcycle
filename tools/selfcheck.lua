@@ -29,6 +29,30 @@ if h then
 end
 out.handlingAttrs = c
 
+-- M8.1 Energy 配置核对:新字段齐、旧擦墙字段除(缺/残留则 seed_m8_1_config.lua 补种)
+local eInst = nr and nr:FindFirstChild("Config") and nr.Config:FindFirstChild("Energy")
+if eInst then
+	local ec = 0
+	for _ in pairs(eInst:GetAttributes()) do ec += 1 end
+	out.energyAttrs = ec
+	local miss = {}
+	for _, k in ipairs({ "MinIgnitionBurnSec", "IgnitionCost", "CrystalMagnetRadius", "MoveRegenPerSec", "GateGain" }) do
+		if eInst:GetAttribute(k) == nil then miss[#miss + 1] = k end
+	end
+	out.energyM81Missing = #miss > 0 and table.concat(miss, ",") or "OK"   -- 期望 OK
+	local stray = {}
+	for _, k in ipairs({ "NearMissGain", "NearMissWindow" }) do
+		if eInst:GetAttribute(k) ~= nil then stray[#stray + 1] = k end
+	end
+	out.energyStrayGraze = #stray > 0 and table.concat(stray, ",") or "OK"   -- 期望 OK(旧擦墙字段已清)
+else
+	out.energyAttrs = "MISSING"
+end
+
+-- M8.1 静态战斗 Tag(闸门/核):Destructible=闸门 +15,EnergyCore=核 +25
+out.destructibleTags = #game:GetService("CollectionService"):GetTagged("Destructible")
+out.energyCoreTags = #game:GetService("CollectionService"):GetTagged("EnergyCore")
+
 -- 摩托完整性
 local moto = workspace:FindFirstChild("Motorcycle")
 out.primaryPart = moto and moto.PrimaryPart and moto.PrimaryPart.Name or "MISSING" -- 期望 BikeRoot
