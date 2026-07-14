@@ -49,6 +49,7 @@ function BikeController.new(model)
 	end
 	-- M4 状态
 	self.spline = nil        -- setSpline 注入(重生/坠落判定依赖)
+	self.respawnCF = nil     -- 检查点复活锚点(最近通过的门黄球);nil = 回退到样条最近点
 	self.respawnT = nil      -- 非 nil = 重生转场倒计时
 	self.resetCount = 0      -- 硬撞+坠落重置计数(作者牌"零重置"用)
 	self._prevWall = false
@@ -76,7 +77,13 @@ function BikeController:applySpeedMultiplier(m)  -- M7:一次性速度惩罚(斩
 	self.curSpeed = math.max(0, self.curSpeed * math.clamp(m, 0, 1))
 end
 function BikeController:setSpline(sp) self.spline = sp end
+function BikeController:setRespawnCF(cf) self.respawnCF = cf end  -- 设当前复活锚点(过门/重开时外部更新)
 function BikeController:isRespawning() return self.respawnT ~= nil end
+-- 手动立即回到当前复活锚点(上个检查点黄球);绕过转场倒计时
+function BikeController:respawnToCheckpoint()
+	self.respawnT = nil
+	self:_doRespawn()
+end
 
 -- 事件订阅:on("graze"|"hardHit"|"fell"|"respawned", fn)
 function BikeController:on(name, fn)
@@ -152,7 +159,10 @@ end
 function BikeController:_doRespawn()
 	local C = self.cfg.get
 	local frac = C("Respawn", "SpeedRestore")
-	if self.spline then
+	if self.respawnCF then
+		-- 检查点复活锚点(最近通过的门黄球),优先于样条最近点
+		self:teleport(self.respawnCF, frac)
+	elseif self.spline then
 		local t = self.spline:NearestPoint(self.physPos)
 		local cf = self.spline:GetCFrame(t)
 		local pos = cf.Position + Vector3.new(0, C("Ground", "HoverHeight"), 0)
