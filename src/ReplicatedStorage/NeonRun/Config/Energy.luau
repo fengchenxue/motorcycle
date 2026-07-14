@@ -10,8 +10,9 @@ return {
 	NearMissGain = 8,          -- 擦墙 +8
 	NearMissWindow = 3.5,
 	WallRideGainPerSec = 12,   -- 贴墙 +12/s
-	SlashGain = 30,            -- 斩击 +30
-	ParryGain = 25,            -- 弹反 +25
+	SlashGain = 30,            -- 斩击 +30(远程敌本体/静态靶,破 Cap)
+	ParryGain = 25,            -- 弹反 +25(破 Cap)
+	CoreGain = 25,             -- 能量核 +25(ADR-18,破 Cap;摆偏线与危险位)
 	-- 消耗与心流
 	SprintDrainPerSec = 22,    -- 冲刺耗 22/s
 	FlowThreshold = 100,       -- 满槽进入心流

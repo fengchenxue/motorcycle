@@ -78,13 +78,25 @@ return {
 		WhooshVolume = 0.7,     -- 擦墙呼啸
 		WhooshCooldownSec = 0.8,
 	},
-	Attack = {
-		-- M7 攻击/弹反(ADR-8):单键·自动锁定·时机判定·斩击点只在直线段
-		LockRangeStuds = 55,    -- 进入此距离(沿接近方向)目标锁定+音画预告
-		HitWindowStuds = 14,    -- 命中窗口:车距目标中心 ≤ 此值时按键=成功(时机带宽)
-		MissSlowdown = 0.7,     -- 失误(窗口外按键)一次性减速系数
-		CooldownSec = 0.35,     -- 攻击键冷却(防连点)
-		StraightMaxTurnDeg = 3, -- 目标合法性:所在点 8studs 转角 < 此值才算直线段(布置期校验)
-		ParryReflectSpeed = 220,-- 弹反子弹回弹速度(表现用)
+	Combat = {
+		-- 斩击判定(ADR-16):按键帧对注册目标做车体局部空间盒查询,禁 Touched
+		HitboxForward = 12,     -- 判定盒:车前深度(studs)
+		HitboxSide = 7,         -- 判定盒:左右各
+		HitboxUp = 5,           -- 判定盒:上下各
+		HitboxBack = 2,         -- 判定盒:车后
+		InputBufferSec = 0.1,   -- 提前按键缓冲:窗口内目标进盒仍判命中(ADR-16)
+		RecoverySec = 0.3,      -- 空挥硬直(ADR-14:失误代价只在错过能量,永不减速)
+		TelegraphRangeStuds = 55, -- 目标进入此距离触发音画预告(HUD/音效,非判定)
+		StraightMaxTurnDeg = 3, -- 布置 lint:目标所在点 8studs 转角 < 此值才算直线段
+		GateLinkWindowSec = 2.5, -- V2 预埋:节点联动墙开启时长(ADR-19)
+		-- 远程敌与快照弹道(ADR-21/22)
+		ShooterRangeStuds = 170, -- 玩家进入此距离且位于玩家前方才开火(迎面弹可读)
+		ShooterTelegraphSec = 0.45, -- 开火前充能预告时长(本体发光膨胀)
+		ShooterFireIntervalSec = 1.8, -- 射击间隔(确定性节拍)
+		BulletSpeed = 150,      -- 子弹速度(快照弹道,发射后恒定,永不追踪)
+		BulletRadius = 3.2,     -- 子弹命中玩家的判定半径
+		BulletLifeSec = 4,      -- 子弹寿命(超时消散)
+		BulletHitSlowdown = 0.75, -- 未弹反命中=减速一档(不死;碰撞永不产生垂直速度)
+		ParryReflectSpeed = 260, -- 弹反回飞速度(改写目标为射手,演出层)
 	},
 }

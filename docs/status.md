@@ -6,13 +6,17 @@
 
 ## 快照(覆盖式)
 
-- **更新:** 2026-07-13,设计讨论会话(纯设计,未动代码/Studio):十项议题全部拍板,`design.md` 升 **v0.6**,新增 ADR-20~28,M4.1 立项。
-- **里程碑:** M0~M2 已验证完成;**M3~M8 已完成(人类报告,细节未回填本档)**;M2.1(S 轻刹+W 别名)**待核实**。队列:**M8.1(按 v0.6 修订执行)→ M4.1 重生与碰撞确定性 → M8.5 TrackBuilder**。
+- **更新:** 2026-07-14,战斗系统会话(Claude Code+MCP):斩击按 v0.6 重写落地,远程敌/快照子弹/弹反全新实现,Edit 仿真验收 11/11 通过,直线+坡顶起飞回归绿。
+- **里程碑:** M0~M2 已验证完成;**M3~M8 已完成(人类报告,细节未回填本档)**;M2.1(S 轻刹+W 别名)**待核实**。**本次落地=M7 斩击 v0.6 对齐重写(ADR-14/16/20 履约)+ ADR-21/22 远程敌与快照弹道首次实现 + 能量核实体(即 M8.1 第 2/3 条的战斗部分)。**队列:**M8.1 剩余(最小点火/磁吸/80 分段 UI/分段门差值/接触擦墙回能字段核查移除)→ M4.1 重生与碰撞确定性 → M8.5 TrackBuilder**。
+- **战斗系统现状(v0.6 对齐,2026-07-14):** `AttackSystem` 重写=按键帧车体局部盒查询(前12/侧7/上下5/后2)+0.1s 输入缓冲+0.3s 空挥硬直+单击多杀+**攻击永不减速**(旧 MissSlowdown 已删);新模块 `ShooterField`=无碰撞射手本体(可斩+30/骑穿零惩罚)+发射瞬间提前量解算的快照子弹(永不追踪,变速变线起跳均为闪避)+弹反=改写目标回飞杀射手(+25)+吃弹=×BulletHitSlowdown 减速一档(零垂直速度);Config 段 Attack→**Combat**(按 E4 键名,18 键),Energy 增 CoreGain=25;ParryEnemy Tag 废弃(运行时兼容为 slash 靶+控制台告警)。
+- **待拍板(人类,试玩后裁决):** ① 手感四参数 `Combat_BulletSpeed=150 / ShooterTelegraphSec=0.45 / ShooterFireIntervalSec=1.8 / BulletHitSlowdown=0.75`(属性面板实时调);② 射手只对"玩家前方"目标开火、骑过即沉默(AI 按可读性默认,是否要背后弹?);③ 吃弹是否断心流(当前:不断,仅减速);④ 旧 M7 靶去留(主赛道 3 SlashEnemy + 1 ParryEnemy 废弃靶)。
 - **v0.6 拍板要点:** 反馈永不冻结画面与输入(子弹时间/hitstop 否决)/ 快照弹道=变速即闪避 / lint"主路线永不强制斩击" / 路面远程敌=无碰撞脚本对象 / 接触擦墙回能删除(贴墙 +12/s 保留)/ 空中 W/S 主动输入删除 / S 轻刹保留待 V1 AB / 反重力=上轨演出段(V3)/ 重生=烘焙锚点链(普通回锚点、硬核回分段门)/ 物性声明制(Rideable 白名单)+碰撞零垂直速度。节点联动墙确认维持 V2 不提前。
-- **现场已知问题(人类试玩报告,归 M4.1):** ① 石头碰撞忽"弹飞"忽减速(涌现分类所致,ADR-28);② 撞墙偶发卡出墙外(滑墙入墙/转场期间仍积分,判定五规格修)。
+- **现场已知问题(人类试玩报告,归 M4.1):** ① 石头碰撞忽"弹飞"忽减速(涌现分类所致,ADR-28);② 撞墙偶发卡出墙外(滑墙入墙/转场期间仍积分,判定五规格修)。**战斗会话新增:** ③ TrackShooter1 落位射线打在高处(y=11),若视觉悬空人类拖正即可(Tag 已带,重注册自动);④ 剑光/弹反音效未做(灰盒,事件钩子 swing/hit/parry/whiff/telegraph/fired/playerHit 已留)。
 - **⚠️ 接手会话的第一任务(不变):** ① 跑 `tools/selfcheck.lua` 核对 Studio;② 盘点 M2.1/M3~M8 实际交付(模块清单/Config 键/验收数据),**回填本快照与下方基准表**;③ 按 design.md §E4 执行 M8.1(注意 v0.6 增量:接触擦墙回能字段删除/置零)。
-- **Studio 侧状态(最后完整核实于 M2 完成时,M3~M8 变更未记录):**
-  - ReplicatedStorage.NeonRun:Modules{BikeController/Spline/SplineViz/ConfigLive}+Config{Handling 34 attrs/Energy/Medals}
+- **Studio 侧状态(2026-07-14 战斗会话增量已记;M3~M8 其余变更仍未回填):**
+  - ReplicatedStorage.NeonRun.Modules 现有 12 件(新增 **ShooterField**);AttackSystem/EnergyState/Handling/Energy/NeonRunTestDrive 均已 `.Source` 推送与 repo 一致(Rojo 再 sync 为幂等);Handling Attributes=**75**(废弃 Attack_* 已清,Combat_* 18 键已种)
+  - Workspace.NeonRun.**CombatRig**(战斗验收台,@(-1200,200,-200) 直道 40×2×800,地板已预打 Rideable Tag):CombatTarget(SlashEnemy)/CombatCore(EnergyCore)/CombatShooterA·B(ShooterEnemy)/CombatPairL·R(多杀双靶)/发车标线;主赛道试玩射手 TrackShooter1@(-91,11,-440)、TrackShooter2@(-134,5,-515)
+  - Tag 计数:SlashEnemy 6 / ShooterEnemy 4 / EnergyCore 1 / Destructible 1 / ParryEnemy 1(废弃待清)/ Rideable 1
   - Workspace.NeonRun:ControlPoints CP01~09(Index 属性定序)/SplineViz 快照 ~230 件/SpikeSite 7 台(y≈200~370,M4 验收复用)
   - Workspace.Motorcycle:PrimaryPart=BikeRoot(2×2.5×7),66 件焊接,零 Sound,Root 锚定停放;备份在 ServerStorage.NeonRun.Backup
   - 模板 Racing/CarSpawning/Collision 脚本与 RaceGui 均 Disabled(勿删);测试走廊沙丘最高 y=138
@@ -34,6 +38,9 @@
 | M3~M8 基准 | **待接手会话回填** | 至少应含:相机 500 帧零穿墙;能量收支=Config;门序校验拒伪造;一键重开 ≤1s 且无泄漏 |
 | M8.1 新增预期 | 点火不足 0.4s 自动烧满;0 能量按键=空箱反馈且速度不变;磁吸边界拾取;核/门/敌入账正确;斩墙 0 能量;R 重开目标全重置;擦碰事件不再入账能量 | 见 design §E4 |
 | M4.1 新增预期 | 石头 rig 同线 100 次结果全同;任意碰撞 vy 增量=0;入射角(5~90°)×速度(100/135/146)矩阵档位正确+零穿透+零墙内帧;锚点枚举全过三 lint;重生弧长永不前进 | 见 design §E4 M4.1;rig 地面件需补 Rideable Tag |
+| **战斗验收 11 场景(CombatRig,Edit dt=1/60)** | S1 直线 drift=0/离地 0;S2 斩靶 +30 速度无损;S3 提前 6 studs 按仍中(晚 3 帧结算)+核 +25;S4 斩射手本体 +30;S5 骑穿 minΔv=0/vy=0;S6 弹反 fire@29/parry@57/kill@73 帧 +25 全程零减速;S7 吃弹速度比恰 0.750/vy=0/不死;S8 空挥零减速+立即二连被硬直拒;S9 一刀双杀 +60;S10 R 全重置 4/4 敌活/0 弹;S11 弹反全流程重放帧号逐位一致 | 2026-07-14;能量断言前先压 energy=20(坑 13) |
+| 直线巡航回归(Rig1,400 帧) | drift=0,airborne=0,maxVy=0 | 2026-07-14 复跑 ✓ |
+| 坡顶起飞回归(Rig3,**setup v2**:起点 (1500,202.6,130) 朝 -Z,全程冲刺,无样条,第二段落地即停) | flights=2,airborne=117,maxFlight=85,landed=true,endPos=(1500,-17.5,-538.2)。落点与原基准 (1500,-17.5,-539) y 全等/z 差 0.8 studs → 弹道物理无回归;滞空帧数与原基准(177/77)不可比,系原脚本起步参数未回填;**今后以 setup v2 数字对照** | 2026-07-14;BikeController 本会话零改动 |
 
 ---
 
@@ -84,3 +91,5 @@
 10. 人工验收点必停等人类;AI 无权凭感觉改手感参数。
 11. 锚定件之间 Touched 不触发——检查点/拾取/战斗判定一律射线或体积查询,永不依赖物理接触事件。
 12. 涌现分类的教训:测试走廊石头忽"弹飞"忽减速=用角度阈值给任意几何分类的必然结果;物性必须声明(Rideable Tag,ADR-28)。切白名单时记得给既有 rig 地面件补 Tag,否则坡顶起飞回归会假失败。
+13. 能量入账断言前先把能量压离 Max/CrystalCap(如 `energy.energy = 20`),否则 +N 被上限截断产生假 FAIL(战斗验收首轮 4 个场景为此误报,机制本身全对)。
+14. 回归基准必须连 setup 一起记(起点/朝向/输入脚本/停止条件),只记结果数字会导致后人无法复现(Rig3 原 177/77 帧即此教训,已用 setup v2 重立)。

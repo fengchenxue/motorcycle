@@ -17,6 +17,7 @@ local EnergyState = require(mods:WaitForChild("EnergyState"))
 local CrystalField = require(mods:WaitForChild("CrystalField"))
 local AttackSystem = require(mods:WaitForChild("AttackSystem"))
 local RaceTimer = require(mods:WaitForChild("RaceTimer"))
+local ShooterField = require(mods:WaitForChild("ShooterField"))
 
 local cpFolder = workspace:WaitForChild("NeonRun"):WaitForChild("ControlPoints")
 local cp1 = cpFolder:WaitForChild("CP01")
@@ -125,6 +126,7 @@ crashFlash.BorderSizePixel = 0
 crashFlash.ZIndex = 5
 crashFlash.Parent = gui
 local function flashCrash()
+	crashFlash.BackgroundColor3 = Color3.fromRGB(0, 230, 255)
 	crashFlash.BackgroundTransparency = 0.25
 end
 ctrl:on("hardHit", flashCrash)
@@ -142,6 +144,13 @@ energy:on("flowEnd", function() rig:setFlow(false) end)
 -- M7:攻击系统(自动锁定·时机判定·斩击点只在直线段);命中回能由 AttackSystem 内部调 energy
 local spline = ctrl.spline
 local attack = AttackSystem.new(ctrl, energy, spline)
+
+-- 远程敌与快照子弹(ADR-21/22):射手本体/子弹经 AttackSystem 注册,弹反=改写目标为射手
+local shooters = ShooterField.new(ctrl, attack)
+shooters:on("playerHit", function()
+	crashFlash.BackgroundColor3 = Color3.fromRGB(255, 60, 110)
+	crashFlash.BackgroundTransparency = 0.55
+end)
 
 -- M8:计时器(发车标准化+检查点+四奖牌+一键重开)
 local timer = RaceTimer.new(ctrl, spline, { trackId = "Track01", laps = 1 })
@@ -169,6 +178,8 @@ local retL = reticleBar(14, 2); retL.Position = UDim2.new(0.5, -16, 0.5, 0)
 local retR = reticleBar(14, 2); retR.Position = UDim2.new(0.5, 16, 0.5, 0)
 local retParts = { retTop, retBot, retL, retR }
 local attackFlash = 0
+attack:on("hit", function() attackFlash = 1 end)
+attack:on("whiff", function() attackFlash = -1 end)
 
 -- M8 计时 HUD:顶部中央秒表 + 检查点进度
 local timerLabel = Instance.new("TextLabel")
@@ -261,6 +272,8 @@ local function doRestart()
 	ctrl:teleport(SPAWN)
 	rig:snap()
 	settlePanel.Visible = false
+	attack:reset()      -- R 重开全部重置:靶/核复活(验收断言点)
+	shooters:reset()    -- 敌人复活/子弹清空/节拍归零
 	timer:restart()
 end
 restartBtn.MouseButton1Click:Connect(doRestart)
@@ -290,9 +303,7 @@ UIS.InputBegan:Connect(function(input, gp)
 		or input.UserInputType == Enum.UserInputType.MouseButton1
 		or input.KeyCode == Enum.KeyCode.ButtonR2 then
 		-- M7 单键攻击(J / 左键 / 手柄R2);命中闪青,失误闪红
-		local r = attack:attack()
-		if r == "hit" then attackFlash = 1
-		elseif r == "miss" then attackFlash = -1 end
+		if not timer:isControlLocked() then attack:attack() end  -- 反馈走 hit/whiff 事件
 	end
 end)
 
@@ -312,6 +323,7 @@ RunS.Heartbeat:Connect(function(dt)
 	-- M5:能量与水晶(ctrl:step 后,读最新遥测)
 	energy:step(dt)
 	field:step(bike.PrimaryPart and bike.PrimaryPart.Position or nil, dt)
+	shooters:step(dt)  -- 射手节拍/子弹推进(attack:step 前:弹反缓冲优先于吃弹)
 	attack:step(dt)  -- M7:维护锁定/窗口(ctrl:step 后,用最新位置)
 	local t = ctrl:getTelemetry()
 	local et = energy:getTelemetry()
@@ -332,7 +344,7 @@ RunS.Heartbeat:Connect(function(dt)
 		rt.state == "finished" and "完赛" or (rt.state == "countdown" and "发车" or (t.grounded and "地面" or "空中")),
 		t.sprinting and "·冲刺" or "",
 		et.flow and "·心流!" or "",
-		at.inWindow and "·可斩!" or "")
+		at.inVolume and "·可斩!" or "")
 end)
 
 local clock = 0
@@ -371,10 +383,10 @@ RunS.RenderStepped:Connect(function(dt)
 	local rc
 	if attackFlash > 0 then rc = Color3.fromRGB(60, 255, 140)      -- 命中闪青
 	elseif attackFlash < 0 then rc = Color3.fromRGB(255, 70, 70)    -- 失误闪红
-	elseif at.inWindow then rc = Color3.fromRGB(60, 255, 140)       -- 可斩
-	elseif at.locked then rc = Color3.fromRGB(255, 180, 40)         -- 锁定
+	elseif at.inVolume then rc = Color3.fromRGB(60, 255, 140)       -- 可斩
+	elseif at.telegraph then rc = Color3.fromRGB(255, 180, 40)         -- 锁定
 	else rc = Color3.fromRGB(180, 200, 220) end                     -- 平时
-	local retAlpha = (at.locked or attackFlash ~= 0) and 0 or 0.55
+	local retAlpha = (at.telegraph or attackFlash ~= 0) and 0 or 0.55
 	for _, b in ipairs(retParts) do b.BackgroundColor3 = rc; b.BackgroundTransparency = retAlpha end
 	if attackFlash > 0 then attackFlash = math.max(0, attackFlash - dt * 3)
 	elseif attackFlash < 0 then attackFlash = math.min(0, attackFlash + dt * 3) end

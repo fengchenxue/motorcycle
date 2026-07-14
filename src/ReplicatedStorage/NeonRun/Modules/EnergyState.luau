@@ -72,6 +72,7 @@ end
 
 function EnergyState:onSlash() self:_add(self.cfg.get("SlashGain"), "slash") end
 function EnergyState:onParry() self:_add(self.cfg.get("ParryGain"), "parry") end
+function EnergyState:onCore() self:_add(self.cfg.get("CoreGain"), "core") end   -- 能量核(ADR-18,破 Cap)
 function EnergyState:_onGraze(p) self:_add(self.cfg.get("NearMissGain"), "graze") end
 
 function EnergyState:_breakFlow(reason)
