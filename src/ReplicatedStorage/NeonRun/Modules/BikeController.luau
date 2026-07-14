@@ -52,7 +52,14 @@ function BikeController.new(model)
 	self.respawnT = nil      -- 非 nil = 重生转场倒计时
 	self.resetCount = 0      -- 硬撞+坠落重置计数(作者牌"零重置"用)
 	self._prevWall = false
-	self._events = { graze = {}, hardHit = {}, fell = {}, respawned = {} }
+	-- 碰撞三档扩展:撞死(滑行+打转)/弹开(法线反射)状态
+	self.crashT = nil          -- 非nil = 撞死滑行+打转中
+	self.crashSpin = 0         -- 撞死视觉打转累计角度(只写 root.CFrame,相机读 yaw 不受影响)
+	self.crashSpinDir = 1
+	self.bounceCD = 0          -- 弹开冷却
+	self.lastContactPoint = nil   -- 最近墙面接触点(火花定位)
+	self.lastContactNormal = nil
+	self._events = { graze = {}, hardHit = {}, fell = {}, respawned = {}, bounce = {} }
 	self.rp = RaycastParams.new()
 	self.rp.FilterType = Enum.RaycastFilterType.Exclude
 	self.rp.FilterDescendantsInstances = { model }
@@ -105,6 +112,9 @@ function BikeController:teleport(cf, keepSpeedFrac)
 	self.suspY, self.suspVel = 0, 0
 	self.prevGrounded = true
 	self.lastLandVy = 0
+	self.crashT = nil
+	self.crashSpin = 0
+	self.bounceCD = 0
 	for _, mtr in ipairs(self.forkMotors) do mtr.Transform = CFrame.identity end
 end
 
@@ -117,6 +127,8 @@ function BikeController:getTelemetry()
 		sprinting = self.sprint and self.sprintAllowed,  -- M5:实际生效的冲刺(区分“按了但无能量”)
 		lastHitAngle = self.lastHitAngle,
 		wallContact = self.wallContact,
+		contactPoint = self.lastContactPoint,
+		crashing = self.crashT ~= nil,
 		vy = self.grounded and 0 or self.vy,
 		roll = self.visualRoll,
 		braking = self.brake,
@@ -154,6 +166,41 @@ function BikeController:_doRespawn()
 	self:_fire("respawned", { pos = self.physPos, resetCount = self.resetCount })
 end
 
+-- 撞死——进入滑行+打转状态(不冻结),结束后重生
+function BikeController:_beginCrash()
+	if self.crashT or self.respawnT then return end
+	local C = self.cfg.get
+	self.crashT = C("Collision", "CrashSlideSec")
+	self.crashSpin = 0
+	self.resetCount += 1
+	-- 顺撞击法线甩:法线在行进方向左侧则逆时针,右侧则顺时针
+	local look = Vector3.new(-math.sin(self.yaw), 0, -math.cos(self.yaw))
+	local n = self.lastContactNormal or Vector3.yAxis
+	local nH = Vector3.new(n.X, 0, n.Z)
+	local side = (nH.Magnitude > 1e-4) and look:Cross(nH.Unit).Y or 0
+	self.crashSpinDir = (side >= 0) and 1 or -1
+	self:_fire("hardHit", { speed = self.curSpeed, angle = self.lastHitAngle, pos = self.lastContactPoint or self.physPos, resetCount = self.resetCount })
+end
+
+-- 弹开——速度方向沿墙面法线反射,泄速,发火花事件,继续行驶
+function BikeController:_doBounce()
+	local C = self.cfg.get
+	local n = self.lastContactNormal or Vector3.yAxis
+	local nH = Vector3.new(n.X, 0, n.Z)
+	if nH.Magnitude < 1e-4 then return end
+	nH = nH.Unit
+	local look = Vector3.new(-math.sin(self.yaw), 0, -math.cos(self.yaw))
+	local refl = look - 2 * look:Dot(nH) * nH
+	refl = Vector3.new(refl.X, 0, refl.Z)
+	if refl.Magnitude > 1e-4 then
+		refl = refl.Unit
+		self.yaw = math.atan2(-refl.X, -refl.Z)
+	end
+	self.curSpeed *= C("Collision", "BounceSlowdown")
+	self.bounceCD = C("Collision", "BounceCooldown")
+	self:_fire("bounce", { pos = self.lastContactPoint, normal = n, speed = self.curSpeed, angle = self.lastHitAngle })
+end
+
 function BikeController:_sweepMove(pos, look, stepLen)
 	local C = self.cfg.get
 	local margin = C("Collision", "SkinWidth") + C("Collision", "FrontOffset")
@@ -180,6 +227,8 @@ function BikeController:_sweepMove(pos, look, stepLen)
 		end
 	end
 	self.wallContact = true
+	self.lastContactPoint = hit.Position
+	self.lastContactNormal = hit.Normal
 	local nH = Vector3.new(hit.Normal.X, 0, hit.Normal.Z)
 	if nH.Magnitude > 1e-4 then
 		self.lastHitAngle = math.deg(math.asin(math.clamp(-look:Dot(nH.Unit), 0, 1)))
@@ -246,6 +295,30 @@ function BikeController:step(dt)
 		return
 	end
 
+	-- 撞死滑行+打转中——不冻结,每帧滑行泄速+视觉打转,结束才重生
+	if self.crashT then
+		self.crashT -= dt
+		self.curSpeed = math.max(0, self.curSpeed * math.pow(C("Collision", "CrashSlowdown"), dt * 6))
+		local look = Vector3.new(-math.sin(self.yaw), 0, -math.cos(self.yaw))
+		local moveVec = self:_sweepMove(self.physPos, look, self.curSpeed * dt) -- 贴墙滑行,不穿墙;同时刷新 lastContactPoint(火花跟随)
+		local np = self.physPos + moveVec
+		local hover = C("Ground", "HoverHeight")
+		local gC = workspace:Raycast(np + Vector3.new(0, hover + 4, 0), Vector3.new(0, -(hover + 16), 0), self.rp)
+		local y = gC and (gC.Position.Y + hover) or self.physPos.Y
+		self.physPos = Vector3.new(np.X, y, np.Z)
+		self.crashSpin += C("Collision", "CrashSpinDegPerSec") * self.crashSpinDir * dt
+		if self.crashT <= 0 then
+			self.crashT = nil
+			self:_doRespawn()
+			return
+		end
+		-- 打转只写 root.CFrame(相机读 yaw/physPos,不跟随旋转)
+		self.root.CFrame = CFrame.lookAt(self.physPos, self.physPos + look, Vector3.yAxis)
+			* CFrame.Angles(0, math.rad(self.crashSpin), 0)
+		return
+	end
+	if self.bounceCD > 0 then self.bounceCD = math.max(0, self.bounceCD - dt) end
+
 	local rampIn = C("Steering", "InputRampInSec")
 	local rampOut = C("Steering", "InputRampOutSec")
 	local engaging = math.abs(self.rawSteer) > math.abs(self.steer)
@@ -297,17 +370,21 @@ function BikeController:step(dt)
 	local moveVec = self:_sweepMove(pos, look, self.curSpeed * dt)
 	local hx = pos + moveVec
 
-	-- M4:碰撞分档(阈值全在 Config)
+	-- 碰撞分三档(阈值全在 Config)——撞死/弹开/擦墙
 	if self.wallContact and self.lastHitAngle then
-		if self.lastHitAngle > C("Collision", "GrazeMaxAngleDeg")
-			and self.curSpeed >= C("Collision", "HardMinSpeed") then
-			-- 硬撞:进入转场,本帧车停在墙前(moveVec 已被扫掠截断)
+		local ang = self.lastHitAngle
+		if ang >= C("Collision", "HardMinAngleDeg") and self.curSpeed >= C("Collision", "HardMinSpeed") then
+			-- 撞死:滑行+打转→重生,本帧车停在墙前(moveVec 已被扫掠截断)
 			self.physPos = hx
-			self:_beginRespawn("hardHit")
+			self:_beginCrash()
 			return
+		elseif ang >= C("Collision", "BounceMinAngleDeg") then
+			-- 弹开(含低速陡角降级):反射方向+泄速+火花,继续行驶
+			self.physPos = hx
+			if self.bounceCD <= 0 then self:_doBounce() end
 		elseif not self._prevWall then
-			-- 擦碰上升沿:回能事件标记(M5 能量系统订阅)
-			self:_fire("graze", { angle = self.lastHitAngle, speed = self.curSpeed })
+			-- 擦墙上升沿:回能事件(擦墙滑行+持续火花由表现层读 wallContact/contactPoint)
+			self:_fire("graze", { angle = ang, speed = self.curSpeed })
 		end
 	end
 	self._prevWall = self.wallContact

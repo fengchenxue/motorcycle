@@ -60,11 +60,20 @@ return {
 	},
 	Collision = {
 		SkinWidth = 0.6,
-		FrontOffset = 3.5,      -- 车头到中心距离(扫掠余量)
-		GrazeMaxAngleDeg = 30,
-		GrazeSlowdown = 0.92,
-		HardMinSpeed = 20,      -- M4 低于此速度的陡角碰撞不触发重生(低速贴墙不惩罚)
-		FallBelowStuds = 80,    -- M4 低于样条最近点此深度判定坠落
+		FrontOffset = 3.5,        -- 车头到中心距离(扫掠余量)
+		-- 碰撞三档角度阈值(速度方向与墙面夹角:0=平行擦过,90=垂直正撞)
+		HardMinAngleDeg   = 55,   -- ≥ 撞死(滑行+顺法线打转→重生)
+		BounceMinAngleDeg = 20,   -- ≥ 弹开(反射方向+火花,继续行驶);以下=擦墙
+		HardMinSpeed = 20,        -- 低于此速度即使陡角也不撞死,降级为弹开(低速贴墙不惩罚)
+		GrazeSlowdown = 0.92,     -- 擦墙每帧泄速系数
+		-- 撞死档:滑行+顺法线打转,结束才重生
+		CrashSlideSec      = 0.5, -- 撞死后滑行+打转时长
+		CrashSpinDegPerSec = 540, -- 视觉打转角速度(约1.5圈/秒,只写root.CFrame,相机不转)
+		CrashSlowdown      = 0.85,-- 撞死滑行每帧泄速系数
+		-- 弹开档:速度沿墙面法线反射
+		BounceSlowdown = 0.75,    -- 弹开后保留的速度比例(0.75=掉25%)
+		BounceCooldown = 0.25,    -- 弹开冷却(防贴墙每帧连弹)
+		FallBelowStuds = 80,      -- M4 低于样条最近点此深度判定坠落
 	},
 	Respawn = {
 		TransitionSec = 0.4,
