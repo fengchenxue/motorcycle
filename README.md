@@ -8,6 +8,10 @@
 > Client 等代码，以及 Car 模型、Garage、Spawners、Race 等实体）已删除，本仓库现在
 > 只包含 NeonRun 摩托游戏。
 
+## 文档
+
+`docs/design.md`(宪法:现行设计+执行计划)· `docs/status.md`(现场:快照/验收基准/坑)· `docs/decisions.md`(决策档案:ADR+修订史+废案墓地)· 根 `CLAUDE.md`(会话入口:铁律/黑名单/工作流)。
+
 ## 结构
 
 ```
