@@ -18,6 +18,7 @@ local CrystalField = require(mods:WaitForChild("CrystalField"))
 local AttackSystem = require(mods:WaitForChild("AttackSystem"))
 local RaceTimer = require(mods:WaitForChild("RaceTimer"))
 local ShooterField = require(mods:WaitForChild("ShooterField"))
+local BikeVFX = require(mods:WaitForChild("BikeVFX"))
 
 local cpFolder = workspace:WaitForChild("NeonRun"):WaitForChild("ControlPoints")
 local cp1 = cpFolder:WaitForChild("CP01")
@@ -137,6 +138,8 @@ ctrl:on("fell", flashCrash)
 local rig = CameraRig.new(camera, ctrl)
 ctrl:on("respawned", function() rig:snap() end)
 local audio = BikeAudio.new(bike.PrimaryPart)
+-- 碰撞火花(订阅 bounce/hardHit + 读 wallContact/crashing 拖火花)
+local vfx = BikeVFX.new(bike, ctrl)
 
 -- M5:能量系统(订阅 ctrl 事件) + 水晶场(拾取→加能);心流→相机档
 local energy = EnergyState.new(ctrl)
@@ -353,6 +356,7 @@ RunS.Heartbeat:Connect(function(dt)
 	local at = attack:getTelemetry()
 	local rt = timer:getTelemetry()
 	audio:update(t, dt)
+	vfx:step(dt)
 	-- M8 计时/倒计时 HUD
 	if rt.state == "countdown" then
 		countdownLabel.Text = rt.countdown and tostring(rt.countdown) or ""
