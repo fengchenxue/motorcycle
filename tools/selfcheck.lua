@@ -70,6 +70,23 @@ end
 -- M6.5 授权墙段计数(WallRideSurface Tag;测试台 WallRig 建后 ≥1)
 out.wallRideSurfaceTags = #game:GetService("CollectionService"):GetTagged("WallRideSurface")
 
+-- M4.1 Handling 键核对(缺则 seed_m4_1_config.lua 或首跑自补)
+if h then
+	local missR = {}
+	for _, k in ipairs({ "Collision_SideOffset", "Respawn_AnchorSpacingSec", "Respawn_SetbackAnchors",
+		"Respawn_InputProtectSec", "Respawn_AnchorMaxTurnDeg", "Respawn_AnchorClearAheadStuds" }) do
+		if h:GetAttribute(k) == nil then missR[#missR + 1] = k end
+	end
+	out.handlingM41 = #missR > 0 and table.concat(missR, ",") or "OK"   -- 期望 OK
+end
+
+-- M4.1 烘焙锚点(ADR-27):RespawnAnchors 锚根下 Attachment 数;0=未烘焙(重生走 dev fallback,正式赛道必须烘焙)
+do
+	local wsNr2 = workspace:FindFirstChild("NeonRun")
+	local anchorRoot = wsNr2 and wsNr2:FindFirstChild("RespawnAnchors")
+	out.respawnAnchors = anchorRoot and #anchorRoot:GetChildren() or 0
+end
+
 -- M8.1 静态战斗 Tag(闸门/核):Destructible=闸门 +15,EnergyCore=核 +25
 out.destructibleTags = #game:GetService("CollectionService"):GetTagged("Destructible")
 out.energyCoreTags = #game:GetService("CollectionService"):GetTagged("EnergyCore")

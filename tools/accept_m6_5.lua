@@ -31,6 +31,10 @@ local WALLCFG = {
 	WallRide_EnterWindowStuds = 6, WallRide_EnterMinSpeed = 60, WallRide_EnterMaxAngleDeg = 45,
 	WallRide_EnterTowardMinSpeed = 5, WallRide_BlendSec = 0.2, WallRide_HeightBandSpeed = 26,
 	WallRide_FallDriftPerSec = 0, WallRide_CamRollSec = 0.25,
+	-- M4.1 新键(BikeController 现依赖;坑 7:显式种,绕开 require 缓存旧 flat)
+	Collision_SideOffset = 1.1,
+	Respawn_AnchorSpacingSec = 5, Respawn_SetbackAnchors = 0, Respawn_InputProtectSec = 0.5,
+	Respawn_AnchorMaxTurnDeg = 6, Respawn_AnchorClearAheadStuds = 60,
 }
 for k, v in pairs(WALLCFG) do hInst:SetAttribute(k, v) end
 
@@ -56,11 +60,17 @@ if not rig then
 	floor.Name = "Floor"; floor.Anchored = true; floor.Size = Vector3.new(260, 2, 800)
 	floor.Position = Vector3.new(-1800, FLOOR_TOP - 1, -600)
 	floor.Color = Color3.fromRGB(60, 65, 80); floor.Parent = rig
+	CS:AddTag(floor, "Rideable")   -- M4.1 白名单:rig 地面件必须带 Tag(坑 12)
 	local wall = Instance.new("Part")
 	wall.Name = "Wall"; wall.Anchored = true; wall.Size = Vector3.new(2, 30, 700) -- 厚2 高30 长700(约定:±X=贴面,Z=切向)
 	wall.Position = Vector3.new(-1769, FLOOR_TOP + 15, -600)                      -- 贴面 x=-1770,墙顶 y=230,z∈[-950,-250]
 	wall.Color = Color3.fromRGB(0, 180, 220); wall.Parent = rig
 	CS:AddTag(wall, "WallRideSurface")
+end
+-- 既有 rig 幂等补 Tag(M4.1 白名单迁移;坑 12)
+do
+	local floor = rig:FindFirstChild("Floor")
+	if floor and not CS:HasTag(floor, "Rideable") then CS:AddTag(floor, "Rideable") end
 end
 
 -- ---- 测试摩托(最小模型,不动 Workspace.Motorcycle)----
@@ -238,6 +248,18 @@ end
 do
 	local sceneHit = workspace:Raycast(Vector3.new(1500, 210, 130), Vector3.new(0, -60, 0))
 	if sceneHit then
+		-- M4.1 白名单迁移预检(坑 12):沿坡顶路径为未打 Tag 的地面件补 Rideable(Terrain 天然白名单)
+		local tagged = {}
+		for z = 130, -560, -20 do
+			local hit = workspace:Raycast(Vector3.new(1500, 260, z), Vector3.new(0, -120, 0))
+			if hit and hit.Instance ~= workspace.Terrain and not CS:HasTag(hit.Instance, "Rideable") then
+				CS:AddTag(hit.Instance, "Rideable")
+				tagged[hit.Instance.Name] = true
+			end
+		end
+		local names = {}
+		for nm in pairs(tagged) do names[#names + 1] = nm end
+		if #names > 0 then log[#log + 1] = "  ○ ⑤ 坡顶路径补 Rideable Tag:" .. table.concat(names, ",") end
 		reset(CFrame.lookAt(Vector3.new(1500, 202.6, 130), Vector3.new(1500, 202.6, 30)))
 		local flights, airborne, maxFlight, cur, prevG, landed = 0, 0, 0, 0, true, false
 		for f = 1, 1200 do

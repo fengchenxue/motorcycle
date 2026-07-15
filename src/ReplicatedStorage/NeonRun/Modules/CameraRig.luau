@@ -26,8 +26,9 @@ function CameraRig.new(camera, ctrl)
 end
 
 -- 车体水平朝向(取物理 yaw,不含视觉 roll/pitch)
+-- M4.1:优先读渲染插值 yaw(定步长下相机随插值位姿走);无插值调用方回退物理 yaw(Edit 工具零变化)
 function CameraRig:_bikeLook()
-	local yaw = self.ctrl.yaw
+	local yaw = self.ctrl.renderYaw or self.ctrl.yaw
 	return Vector3.new(-math.sin(yaw), 0, -math.cos(yaw))
 end
 
@@ -48,7 +49,7 @@ end
 function CameraRig:update(dt)
 	local C = self.cfg.get
 	local ctrl = self.ctrl
-	local target = ctrl.physPos
+	local target = ctrl.renderPos or ctrl.physPos  -- M4.1:插值位姿优先(定步长渲染平滑)
 	local tele = ctrl:getTelemetry()
 	self.t += dt
 

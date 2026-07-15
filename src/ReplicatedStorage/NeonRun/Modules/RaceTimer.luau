@@ -45,7 +45,9 @@ function RaceTimer.new(ctrl, spline, opts)
 	self.countdownT = 0
 	self.countdownNum = nil
 	self.time = 0
-	self.resetCount = 0
+	self.raceSteps = 0        -- M4.1(ADR-33):计时=步数×固定步长,与物理同基零漂移
+	self.resetCount = 0       -- R 重开次数;结算另并入本局 ctrl 硬撞/坠落重生数(作者牌语义,E4-M4.1-4)
+	self._ctrlResetBase = 0   -- 绿灯时的 ctrl.resetCount 基线
 	self.lapsDone = 0
 	self.nextCheckpoint = 1     -- 下一个必须穿过的检查点索引
 	self.result = nil
@@ -93,10 +95,16 @@ function RaceTimer:restart()
 	self:startCountdown()
 end
 
--- 根据时间定奖牌(作者牌颜外需 resetCount==0 若 AuthorZeroReset)
+-- 合计重置数(作者牌语义):R 重开次数 + 本局硬撞/坠落转场重生数(E4-M4.1-4)
+function RaceTimer:_combinedResets()
+	local ctrlResets = (self.ctrl and self.ctrl.resetCount) or 0
+	return self.resetCount + math.max(0, ctrlResets - (self._ctrlResetBase or 0))
+end
+
+-- 根据时间定奖牌(作者牌额外需合计重置==0 若 AuthorZeroReset)
 function RaceTimer:_computeMedal(time)
 	local th = self.thresholds
-	local authorOK = time <= th.Author and (not th.AuthorZeroReset or self.resetCount == 0)
+	local authorOK = time <= th.Author and (not th.AuthorZeroReset or self:_combinedResets() == 0)
 	if authorOK then return "Author" end
 	if time <= th.Gold then return "Gold" end
 	if time <= th.Silver then return "Silver" end
@@ -123,7 +131,7 @@ function RaceTimer:_buildResult(time)
 	return {
 		time = time,
 		medal = medal,
-		resetCount = self.resetCount,
+		resetCount = self:_combinedResets(),   -- R + 本局硬撞/坠落重生(作者牌语义)
 		nextMedal = nextMedal,
 		gapToNext = gap,   -- “差 X 秒就是<nextMedal>”
 		thresholds = th,
@@ -159,6 +167,9 @@ function RaceTimer:step(dt)
 			-- 绿灯!起计
 			self.state = "racing"
 			self.time = 0
+			self.raceSteps = 0
+			-- 本局 ctrl 重生基线(硬撞/坠落转场计入 resetCount,作者牌语义)
+			self._ctrlResetBase = (self.ctrl and self.ctrl.resetCount) or 0
 			self.countdownNum = nil
 			if self.ctrl and self.ctrl.physPos and self.spline then
 				self._prevT = select(1, self.spline:NearestPoint(self.ctrl.physPos))
@@ -170,8 +181,9 @@ function RaceTimer:step(dt)
 
 	if self.state ~= "racing" then return self.state end
 
-	-- 计时推进
-	self.time += dt
+	-- 计时推进:步数×固定步长(ADR-33 与物理同基;定步长下 dt 恒为 1/60)
+	self.raceSteps += 1
+	self.time = self.raceSteps * dt
 
 	-- 检查点门:当前样条参数跨过下一检查点 t 则计数(防抄近道需按序)
 	if self.ctrl and self.ctrl.physPos and self.spline then
@@ -239,7 +251,7 @@ function RaceTimer:getTelemetry()
 		totalCheckpoints = #self.checkpointTs,
 		lapsDone = self.lapsDone,
 		laps = self.laps,
-		resetCount = self.resetCount,
+		resetCount = self:_combinedResets(),
 		medal = self.result and self.result.medal or nil,
 		chasing = self.pbSplits and "PB" or self.refMedal,   -- HUD 追赶角标(TestDrive 本地化)
 	}
