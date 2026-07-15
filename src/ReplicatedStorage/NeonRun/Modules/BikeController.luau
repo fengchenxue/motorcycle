@@ -7,6 +7,7 @@
 --     进入=触发区探测(纯观察,命中翻状态)→段内磁吸 down=−墙法线+A/D 高度带→退出三种(段尾/上缘弹道、下缘回地)。
 --     墙=经济中性(ADR-37):墙态不发 graze、不置 wallContact,与能量零往来。
 local RS = game:GetService("ReplicatedStorage")
+local CollectionService = game:GetService("CollectionService")
 
 local BikeController = {}
 BikeController.__index = BikeController
@@ -54,9 +55,24 @@ function BikeController.new(model)
 	-- M6.5 墙态(ADR-36):wall ≠ nil = 磁吸中;wallField 由 setWallField 注入(无场=永不入墙,老场景零影响)
 	self.wallField = nil
 	self.wall = nil
+	-- M4.1 渲染插值(ADR-33):物理步产出 prev/cur 位姿双缓冲,renderInterpolate(alpha) 混合写 root;
+	-- renderPos/renderYaw=插值后的相机锚(未调用插值=nil,消费方回退 physPos/yaw——Edit 工具零变化)
+	self.prevRenderCF = nil
+	self.curRenderCF = nil
+	self.prevPhysPos = nil
+	self.curPhysPos = nil
+	self.prevYawR = nil
+	self.curYawR = nil
+	self.renderPos = nil
+	self.renderYaw = nil
+	-- M4.1 重生输入保护:>0 期间转向/冲刺/刹车输入强制中立(Respawn_InputProtectSec)
+	self.inputProtectT = 0
 	-- M4 状态
 	self.spline = nil        -- setSpline 注入(重生/坠落判定依赖)
-	self.respawnCF = nil     -- 检查点复活锚点(最近通过的门黄球);nil = 回退到样条最近点
+	-- M4.1(ADR-27):烘焙锚点链=重生唯一正路;旧"检查点黄球 respawnCF"已删(分段门≠锚点,严禁纠缠)
+	self.anchors = nil       -- setAnchors 注入(RespawnAnchors.load() 的排序表)
+	self.spawnCF = nil       -- 发车位=隐式 0 号锚(首锚之前坠落回这里)
+	self.respawnMode = "anchor"  -- 硬核="gate" 接口预留(V1 不实现,分段门重考归硬核模式)
 	self.respawnT = nil      -- 非 nil = 重生转场倒计时
 	self.resetCount = 0      -- 硬撞+坠落重置计数(作者牌"零重置"用)
 	self._prevWall = false
@@ -71,8 +87,29 @@ function BikeController.new(model)
 	self.rp = RaycastParams.new()
 	self.rp.FilterType = Enum.RaycastFilterType.Exclude
 	self.rp.FilterDescendantsInstances = { model }
+	-- M4.1 物性声明制(ADR-28):地面探针(悬浮/姿态/着陆/crash 跟地)只认 Terrain+Rideable 白名单;
+	-- 其余一切 BasePart=障碍,只走碰撞扫掠(self.rp 全体)。世界物性是声明的,不是涌现的。
+	self.rpGround = RaycastParams.new()
+	self.rpGround.FilterType = Enum.RaycastFilterType.Include
+	self._rideableConns = {
+		CollectionService:GetInstanceAddedSignal("Rideable"):Connect(function() self:_rebuildGroundFilter() end),
+		CollectionService:GetInstanceRemovedSignal("Rideable"):Connect(function() self:_rebuildGroundFilter() end),
+	}
+	self:_rebuildGroundFilter()
+	-- M4.1 碰撞定档一次性(ADR-28):接触上升沿分类,接触期内不重判(nil|"graze"|"bounce"|"hard")
+	self.contactClass = nil
 	self.root.Anchored = true
 	return self
+end
+
+function BikeController:_rebuildGroundFilter()
+	local list = { workspace.Terrain }
+	for _, inst in ipairs(CollectionService:GetTagged("Rideable")) do
+		if inst:IsA("BasePart") then
+			list[#list + 1] = inst
+		end
+	end
+	self.rpGround.FilterDescendantsInstances = list
 end
 
 function BikeController:setSteer(v) self.rawSteer = math.clamp(v, -1, 1) end
@@ -86,10 +123,12 @@ function BikeController:applySpeedMultiplier(m)  -- M7:一次性速度惩罚(斩
 end
 function BikeController:setSpline(sp) self.spline = sp end
 function BikeController:setWallField(f) self.wallField = f end  -- M6.5:注入授权墙段注册表(WallRideField)
-function BikeController:setRespawnCF(cf) self.respawnCF = cf end  -- 设当前复活锚点(过门/重开时外部更新)
+function BikeController:setAnchors(list) self.anchors = list end  -- M4.1:烘焙锚点链(RespawnAnchors.load())
+function BikeController:setSpawnCF(cf) self.spawnCF = cf end      -- M4.1:发车位=隐式 0 号锚
+function BikeController:setRespawnMode(m) self.respawnMode = m end -- 硬核="gate" 接口预留(V1 恒 anchor)
 function BikeController:isRespawning() return self.respawnT ~= nil end
--- 手动立即回到当前复活锚点(上个检查点黄球);绕过转场倒计时
-function BikeController:respawnToCheckpoint()
+-- 立即执行一次重生(绕过转场倒计时;测试/调试用)
+function BikeController:respawnNow()
 	self.respawnT = nil
 	self:_doRespawn()
 end
@@ -108,10 +147,11 @@ function BikeController:_fire(name, payload)
 end
 
 function BikeController:teleport(cf, keepSpeedFrac)
-	self.root.CFrame = cf
 	local look = cf.LookVector
 	self.yaw = math.atan2(-look.X, -look.Z)
 	self.physPos = cf.Position
+	self:_setRenderCF(cf, true)  -- M4.1:传送=渲染快照,绝不跨传送插值
+	self.inputProtectT = 0       -- R/外部传送清输入保护(重生保护由 _doRespawn 单独设)
 	self.smoothNormal = Vector3.yAxis
 	self.wall = nil             -- M6.5:R/重生/传送强制退墙态(E4-5)
 	self.curSpeed = self.curSpeed * (keepSpeedFrac or 0)
@@ -125,12 +165,14 @@ function BikeController:teleport(cf, keepSpeedFrac)
 	self.brakeFrac = 1
 	self.wallContact = false
 	self._prevWall = false
+	self.contactClass = nil   -- M4.1:传送=接触事件结束(定档一次性状态清零)
 	self.visualRoll, self.rollVel = 0, 0
 	self.visualPitch = 0
 	self.suspY, self.suspVel = 0, 0
 	self.prevGrounded = true
 	self.lastLandVy = 0
 	self.crashT = nil
+	self.respawnT = nil   -- M4.1 修:R/传送打断硬撞转场,旧重生倒计时不得跨传送存活(R 全重置铁律)
 	self.crashSpin = 0
 	self.bounceCD = 0
 	for _, mtr in ipairs(self.forkMotors) do mtr.Transform = CFrame.identity end
@@ -160,6 +202,9 @@ function BikeController:getTelemetry()
 		-- M6.5 墙态(ADR-36):磁吸中 grounded=false 且 wallContact=false(墙态≠擦墙,经济中性)
 		wallRiding = self.wall ~= nil,
 		wallUp = self.wall and self.wall.n or nil,  -- 车体 up=墙外法线(相机 roll 目标)
+		-- M4.1:重生输入保护窗口 + 碰撞定档结果(HUD/验收断言用)
+		inputProtected = self.inputProtectT > 0,
+		contactClass = self.contactClass,
 	}
 end
 
@@ -172,14 +217,29 @@ function BikeController:_beginRespawn(kind)
 	self:_fire(kind, { speed = self.curSpeed, angle = self.lastHitAngle, pos = self.physPos, resetCount = self.resetCount })
 end
 
--- M4:执行重生——样条最近点 + 切线朝向 + 恢复部分速度
+-- M4.1:执行重生(ADR-27)——烘焙锚点按弧长回取(≤当前,永不前进)+ 恢复部分速度 + 输入保护
 function BikeController:_doRespawn()
 	local C = self.cfg.get
 	local frac = C("Respawn", "SpeedRestore")
-	if self.respawnCF then
-		-- 检查点复活锚点(最近通过的门黄球),优先于样条最近点
-		self:teleport(self.respawnCF, frac)
+	local target = nil
+	if self.spline and self.anchors and #self.anchors > 0 then
+		local curT = select(1, self.spline:NearestPoint(self.physPos))
+		local setback = C("Respawn", "SetbackAnchors") or 0
+		-- 弧长≤当前的最近锚点,再回退 setback 个(内联 RespawnAnchors.pick 语义,避免模块循环依赖)
+		local idx = nil
+		for i = #self.anchors, 1, -1 do
+			if self.anchors[i].t <= curT then idx = i break end
+		end
+		if idx then
+			target = self.anchors[math.max(1, idx - setback)].cf
+		else
+			target = self.spawnCF   -- 首锚之前=回发车位(隐式 0 号锚;仍不前进)
+		end
+	end
+	if target then
+		self:teleport(target, frac)
 	elseif self.spline then
+		-- 兜底:未烘焙锚点的开发场景(正式赛道必须烘焙;运行时裸算=废案,此处仅 dev fallback)
 		local t = self.spline:NearestPoint(self.physPos)
 		local cf = self.spline:GetCFrame(t)
 		local pos = cf.Position + Vector3.new(0, C("Ground", "HoverHeight"), 0)
@@ -190,6 +250,8 @@ function BikeController:_doRespawn()
 		local pos = self.physPos + Vector3.new(0, 2, 0)
 		self:teleport(CFrame.lookAt(pos, pos + look), frac)
 	end
+	-- 0.5s 输入保护(§4.4:重生瞬间旧输入不再把车送回同一个坑;teleport 已清,故在其后设)
+	self.inputProtectT = C("Respawn", "InputProtectSec") or 0
 	self:_fire("respawned", { pos = self.physPos, resetCount = self.resetCount })
 end
 
@@ -232,9 +294,19 @@ function BikeController:_sweepMove(pos, look, stepLen)
 	local C = self.cfg.get
 	local margin = C("Collision", "SkinWidth") + C("Collision", "FrontOffset")
 	local hover = C("Ground", "HoverHeight")
-	local hit = workspace:Raycast(pos, look * (stepLen + margin), self.rp)
-	local lowHit = workspace:Raycast(pos - Vector3.new(0, hover * 0.6, 0), look * (stepLen + margin), self.rp)
-	if lowHit and (not hit or lowHit.Distance < hit.Distance) then hit = lowHit end
+	-- M4.1 三线扫掠(ADR-28):中心+左右前角(±SideOffset)取最早命中;低位线保留(矮障碍)
+	local dirLen = look * (stepLen + margin)
+	local right = Vector3.new(-look.Z, 0, look.X)  -- 水平右向(look 恒水平)
+	local side = C("Collision", "SideOffset")
+	local hit = workspace:Raycast(pos, dirLen, self.rp)
+	for _, origin in ipairs({
+		pos - Vector3.new(0, hover * 0.6, 0),
+		pos + right * side,
+		pos - right * side,
+	}) do
+		local h = workspace:Raycast(origin, dirLen, self.rp)
+		if h and (not hit or h.Distance < hit.Distance) then hit = h end
+	end
 	self.wallContact = false
 	if not hit then
 		return look * stepLen
@@ -274,6 +346,40 @@ function BikeController:_sweepMove(pos, look, stepLen)
 		move += slide * slideLen
 	end
 	return move
+end
+
+-- M4.1 渲染位姿提交:物理步的最终 CFrame 进双缓冲并直写 root(无插值调用方=旧行为);
+-- snap=true(teleport/重生)时 prev=cur,绝不跨传送插值。
+function BikeController:_setRenderCF(cf, snap)
+	if snap or not self.curRenderCF then
+		self.prevRenderCF = cf
+	else
+		self.prevRenderCF = self.curRenderCF
+	end
+	self.curRenderCF = cf
+	self.root.CFrame = cf
+	self.prevPhysPos = snap and self.physPos or (self.curPhysPos or self.physPos)
+	self.curPhysPos = self.physPos
+	self.prevYawR = snap and self.yaw or (self.curYawR or self.yaw)
+	self.curYawR = self.yaw
+	if snap then
+		self.renderPos, self.renderYaw = nil, nil
+	end
+end
+
+-- M4.1(ADR-33):渲染插值——两个物理步位姿间按 alpha 混合写 root.CFrame;物理真相仍是 60Hz 定步长。
+-- 同时产出 renderPos/renderYaw(yaw 走最短弧)供相机取插值锚。
+function BikeController:renderInterpolate(alpha)
+	if not (self.prevRenderCF and self.curRenderCF) then return end
+	alpha = math.clamp(alpha, 0, 1)
+	self.root.CFrame = self.prevRenderCF:Lerp(self.curRenderCF, alpha)
+	local pp = self.prevPhysPos or self.physPos
+	local cp = self.curPhysPos or self.physPos
+	self.renderPos = pp:Lerp(cp, alpha)
+	local py = self.prevYawR or self.yaw
+	local cy = self.curYawR or self.yaw
+	local dy = (cy - py + math.pi) % (2 * math.pi) - math.pi
+	self.renderYaw = py + dy * alpha
 end
 
 -- 输入渐变(A/D 0.12s 渐入 / 0.20s 回正)——地面转向与墙上高度带共用(M6.5 抽取,数学逐位不变)
@@ -351,9 +457,9 @@ function BikeController:_visualStep(dt, baseCF)
 	for _, mtr in ipairs(self.forkMotors) do
 		mtr.Transform = CFrame.Angles(0, forkRad, 0)
 	end
-	self.root.CFrame = baseCF
+	self:_setRenderCF(baseCF
 		* CFrame.new(0, self.suspY, 0)
-		* CFrame.Angles(math.rad(self.visualPitch), 0, math.rad(self.visualRoll))
+		* CFrame.Angles(math.rad(self.visualPitch), 0, math.rad(self.visualRoll)))
 end
 
 -- ============================ M6.5 墙态(ADR-36/37,design §4.9) ============================
@@ -454,6 +560,10 @@ function BikeController:step(dt)
 
 	-- M4:重生转场中——车冻结原地(故障艺术占位),输入忽略,倒计时结束执行重生
 	if self.respawnT then
+		-- 冻结帧渲染双缓冲坍缩到最新位姿(插值不再回放冻结前的运动)
+		self.prevRenderCF = self.curRenderCF or self.prevRenderCF
+		self.prevPhysPos = self.curPhysPos or self.prevPhysPos
+		self.prevYawR = self.curYawR or self.prevYawR
 		self.respawnT -= dt
 		if self.respawnT <= 0 then
 			self.respawnT = nil
@@ -470,7 +580,7 @@ function BikeController:step(dt)
 		local moveVec = self:_sweepMove(self.physPos, look, self.curSpeed * dt) -- 贴墙滑行,不穿墙;同时刷新 lastContactPoint(火花跟随)
 		local np = self.physPos + moveVec
 		local hover = C("Ground", "HoverHeight")
-		local gC = workspace:Raycast(np + Vector3.new(0, hover + 4, 0), Vector3.new(0, -(hover + 16), 0), self.rp)
+		local gC = workspace:Raycast(np + Vector3.new(0, hover + 4, 0), Vector3.new(0, -(hover + 16), 0), self.rpGround) -- 白名单(ADR-28)
 		local y = gC and (gC.Position.Y + hover) or self.physPos.Y
 		self.physPos = Vector3.new(np.X, y, np.Z)
 		self.crashSpin += C("Collision", "CrashSpinDegPerSec") * self.crashSpinDir * dt
@@ -479,12 +589,20 @@ function BikeController:step(dt)
 			self:_doRespawn()
 			return
 		end
-		-- 打转只写 root.CFrame(相机读 yaw/physPos,不跟随旋转)
-		self.root.CFrame = CFrame.lookAt(self.physPos, self.physPos + look, Vector3.yAxis)
-			* CFrame.Angles(0, math.rad(self.crashSpin), 0)
+		-- 打转只写渲染位姿(相机读 yaw/physPos,不跟随旋转)
+		self:_setRenderCF(CFrame.lookAt(self.physPos, self.physPos + look, Vector3.yAxis)
+			* CFrame.Angles(0, math.rad(self.crashSpin), 0))
 		return
 	end
 	if self.bounceCD > 0 then self.bounceCD = math.max(0, self.bounceCD - dt) end
+
+	-- M4.1 重生输入保护(§4.4):窗口内转向回中、冲刺/刹车忽略;客户端每帧重设也会被本处覆写
+	if self.inputProtectT > 0 then
+		self.inputProtectT = math.max(0, self.inputProtectT - dt)
+		self.rawSteer = 0
+		self.sprint = false
+		self.brake = false
+	end
 
 	-- M6.5 墙态分支(ADR-36):磁吸中走独立路径;地面/空中代码在墙态帧完全不执行(零改动铁律)
 	if self.wall then
@@ -494,7 +612,8 @@ function BikeController:step(dt)
 
 	self:_steerRamp(dt)
 	local sprintSpeed = self:_speedStep(dt)
-	if self.wallContact then
+	-- 擦墙泄速:只在 graze 档接触期生效(M4.1 定档一次性;弹开/硬撞各走自己的泄速,不叠加)
+	if self.wallContact and self.contactClass == "graze" then
 		self.curSpeed *= math.pow(C("Collision", "GrazeSlowdown"), dt * 6)
 	end
 
@@ -510,22 +629,33 @@ function BikeController:step(dt)
 	local moveVec = self:_sweepMove(pos, look, self.curSpeed * dt)
 	local hx = pos + moveVec
 
-	-- 碰撞分三档(阈值全在 Config)——撞死/弹开/擦墙
+	-- 碰撞三档(阈值全在 Config)——M4.1 定档一次性(ADR-28):
+	-- 接触上升沿按入射角分类一次,接触期内沿用该档,不逐帧重判(根治"同一石头忽弹忽减"的涌现分类)。
 	if self.wallContact and self.lastHitAngle then
-		local ang = self.lastHitAngle
-		if ang >= C("Collision", "HardMinAngleDeg") and self.curSpeed >= C("Collision", "HardMinSpeed") then
+		if not self._prevWall then
+			local ang = self.lastHitAngle
+			if ang >= C("Collision", "HardMinAngleDeg") and self.curSpeed >= C("Collision", "HardMinSpeed") then
+				self.contactClass = "hard"
+			elseif ang >= C("Collision", "BounceMinAngleDeg") then
+				self.contactClass = "bounce"
+			else
+				self.contactClass = "graze"
+				-- 擦墙上升沿事件(纯惩罚零回能 ADR-23;滑行+持续火花由表现层读 wallContact/contactPoint)
+				self:_fire("graze", { angle = ang, speed = self.curSpeed })
+			end
+		end
+		if self.contactClass == "hard" then
 			-- 撞死:滑行+打转→重生,本帧车停在墙前(moveVec 已被扫掠截断)
 			self.physPos = hx
 			self:_beginCrash()
 			return
-		elseif ang >= C("Collision", "BounceMinAngleDeg") then
+		elseif self.contactClass == "bounce" then
 			-- 弹开(含低速陡角降级):反射方向+泄速+火花,继续行驶
 			self.physPos = hx
 			if self.bounceCD <= 0 then self:_doBounce() end
-		elseif not self._prevWall then
-			-- 擦墙上升沿:回能事件(擦墙滑行+持续火花由表现层读 wallContact/contactPoint)
-			self:_fire("graze", { angle = ang, speed = self.curSpeed })
 		end
+	else
+		self.contactClass = nil   -- 接触结束:下次接触=新事件,重新定档
 	end
 	self._prevWall = self.wallContact
 
@@ -538,8 +668,9 @@ function BikeController:step(dt)
 		local half = C("Ground", "WheelBase") * 0.5
 		local up = C("Physics", "MaxStepUp") + 6
 		local down = up + hover + 12
+		-- M4.1:高度/姿态探针只认白名单(ADR-28)——非可骑面物理上"不存在于地面语义"
 		local function probe(p)
-			return workspace:Raycast(Vector3.new(p.X, pos.Y + up, p.Z), Vector3.new(0, -down, 0), self.rp)
+			return workspace:Raycast(Vector3.new(p.X, pos.Y + up, p.Z), Vector3.new(0, -down, 0), self.rpGround)
 		end
 		local gC = probe(hx)
 		local ballisticY = pos.Y + self.vySurf * dt - 0.5 * gravity * dt * dt
@@ -575,8 +706,35 @@ function BikeController:step(dt)
 		local newY = pos.Y + self.vy * dt
 		if self.vy < 0 then
 			local drop = pos.Y - newY
-			local land = workspace:Raycast(Vector3.new(hx.X, pos.Y + 0.5, hx.Z), Vector3.new(0, -(drop + hover + 0.5), 0), self.rp)
-			if land and land.Position.Y + hover >= newY then
+			local rayO = Vector3.new(hx.X, pos.Y + 0.5, hx.Z)
+			local rayD = Vector3.new(0, -(drop + hover + 0.5), 0)
+			-- 着陆=只认白名单(ADR-28);障碍顶面另走防穿分支(障碍不可骑,不产生着陆)
+			local land = workspace:Raycast(rayO, rayD, self.rpGround)
+			local obst = workspace:Raycast(rayO, rayD, self.rp)
+			if obst and (not CollectionService:HasTag(obst.Instance, "Rideable")) and obst.Instance ~= workspace.Terrain
+				and (not land or obst.Position.Y > land.Position.Y) then
+				-- M4.1 防穿:下坠撞上非可骑面。陡角高速=硬撞转场(§4.4 三档);
+				-- 轻触=钳在顶面悬浮高,vy 归零但不落地(不可骑),水平滑出边缘后继续弹道。
+				-- 碰撞永不产生垂直速度:此处只吸收(vy→0),绝不向上。
+				if obst.Position.Y + hover >= newY then
+					local vel = Vector3.new(moveVec.X / math.max(dt, 1e-6), self.vy, moveVec.Z / math.max(dt, 1e-6))
+					local speedTotal = vel.Magnitude
+					local sinInc = speedTotal > 1e-4 and math.clamp(-vel.Unit:Dot(obst.Normal), 0, 1) or 0
+					local incDeg = math.deg(math.asin(sinInc))
+					self.lastContactPoint = obst.Position
+					self.lastContactNormal = obst.Normal
+					self.lastHitAngle = incDeg
+					self.physPos = Vector3.new(hx.X, obst.Position.Y + hover, hx.Z)
+					self.vy = 0
+					self.vySurf = 0
+					if incDeg >= C("Collision", "HardMinAngleDeg") and speedTotal >= C("Collision", "HardMinSpeed") then
+						self:_beginRespawn("hardHit")   -- 重摔上障碍=硬撞(跳过滑行:障碍顶无可骑地)
+						return
+					end
+					newPos = self.physPos
+					newY = newPos.Y
+				end
+			elseif land and land.Position.Y + hover >= newY then
 				newY = land.Position.Y + hover
 				self.lastLandVy = self.vy
 				self.grounded = true
@@ -586,6 +744,20 @@ function BikeController:step(dt)
 			end
 		end
 		newPos = Vector3.new(hx.X, newY, hx.Z)
+	end
+
+	-- M4.1 去穿透钳制(ADR-28"滑墙永不入墙/零墙内帧"):帧位移向量最后过一次全体扫掠,
+	-- 命中非白名单障碍则钳回 SkinWidth 外;白名单地面(下坡贴地弧线)不钳。钳制不改写任何速度。
+	do
+		local delta = newPos - pos
+		local len = delta.Magnitude
+		if len > 1e-4 then
+			local hit = workspace:Raycast(pos, delta, self.rp)
+			if hit and hit.Instance ~= workspace.Terrain
+				and not CollectionService:HasTag(hit.Instance, "Rideable") then
+				newPos = pos + delta.Unit * math.max(0, hit.Distance - C("Collision", "SkinWidth"))
+			end
+		end
 	end
 
 	-- M4:坠落判定(掉出赛道体,同硬撞)
@@ -626,6 +798,8 @@ end
 
 function BikeController:destroy()
 	for _, mtr in ipairs(self.forkMotors) do mtr.Transform = CFrame.identity end
+	for _, conn in ipairs(self._rideableConns or {}) do conn:Disconnect() end
+	self._rideableConns = nil
 end
 
 return BikeController

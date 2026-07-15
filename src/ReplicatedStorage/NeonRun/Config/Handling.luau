@@ -61,6 +61,7 @@ return {
 	Collision = {
 		SkinWidth = 0.6,
 		FrontOffset = 3.5,        -- 车头到中心距离(扫掠余量)
+		SideOffset = 1.1,         -- M4.1 三线扫掠:左右前角线的横向偏移(ADR-28)
 		-- 碰撞三档角度阈值(速度方向与墙面夹角:0=平行擦过,90=垂直正撞)
 		HardMinAngleDeg   = 55,   -- ≥ 撞死(滑行+顺法线打转→重生)
 		BounceMinAngleDeg = 20,   -- ≥ 弹开(反射方向+火花,继续行驶);以下=擦墙
@@ -78,6 +79,12 @@ return {
 	Respawn = {
 		TransitionSec = 0.4,
 		SpeedRestore = 0.6,
+		-- M4.1 烘焙锚点链(ADR-27)
+		AnchorSpacingSec = 5,       -- 采样间距(秒;烘焙换算 ×Speed_Base=studs;AB 5↔15)
+		SetbackAnchors = 0,         -- 重生额外回退锚点数(拍板=0)
+		InputProtectSec = 0.5,      -- 重生输入保护窗口(§4.4)
+		AnchorMaxTurnDeg = 6,       -- lint②:±10 studs 切线转角上限(直线段判据)
+		AnchorClearAheadStuds = 60, -- lint③:锚点前方净空(无障碍/无射手)
 	},
 	WallRide = {
 		-- M6.5 贴墙段(ADR-36 授权段磁吸;§4.9)。墙=经济中性,收入键不存在(ADR-37)。

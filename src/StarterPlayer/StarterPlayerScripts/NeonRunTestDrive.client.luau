@@ -20,6 +20,8 @@ local RaceTimer = require(mods:WaitForChild("RaceTimer"))
 local ShooterField = require(mods:WaitForChild("ShooterField"))
 local BikeVFX = require(mods:WaitForChild("BikeVFX"))
 local WallRideField = require(mods:WaitForChild("WallRideField"))
+local FixedStep = require(mods:WaitForChild("FixedStep"))
+local RespawnAnchors = require(mods:WaitForChild("RespawnAnchors"))
 
 local cpFolder = workspace:WaitForChild("NeonRun"):WaitForChild("ControlPoints")
 local cp1 = cpFolder:WaitForChild("CP01")
@@ -153,6 +155,10 @@ do
 end
 -- M6.5:授权贴墙段(WallRideSurface Tag 注册表;场上无 Tag 则永不入墙,零影响)
 ctrl:setWallField(WallRideField.new())
+-- M4.1(ADR-27):烘焙锚点链装载;发车位=隐式 0 号锚。未烘焙场景走 dev fallback(正式赛道必须烘焙)
+ctrl:setSpawnCF(SPAWN)
+local anchors = RespawnAnchors.load()
+if anchors then ctrl:setAnchors(anchors) end
 -- M4:硬撞/坠落转场占位——全屏青色故障闪屏,随 TransitionSec 淡出
 local crashFlash = Instance.new("Frame")
 crashFlash.Size = UDim2.new(1, 0, 1, 0)
@@ -453,7 +459,10 @@ UIS.InputBegan:Connect(function(input, gp)
 	end
 end)
 
+-- M4.1(ADR-33):60Hz 定步长累加器——物理/经济/计时全部固定 dt,渲染插值在 RenderStepped
+local fixed = FixedStep.new()
 RunS.Heartbeat:Connect(function(dt)
+	-- 输入采样(帧级;步内保持不变)
 	local steer = 0
 	if UIS:IsKeyDown(Enum.KeyCode.A) then steer += 1 end
 	if UIS:IsKeyDown(Enum.KeyCode.D) then steer -= 1 end
@@ -464,13 +473,15 @@ RunS.Heartbeat:Connect(function(dt)
 	ctrl:setSprint((not locked) and (UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.RightShift) or UIS:IsKeyDown(Enum.KeyCode.W)))
 	ctrl:setBrake((not locked) and UIS:IsKeyDown(Enum.KeyCode.S))
 	if locked then ctrl:setSteer(0) end
-	ctrl:step(dt)
-	timer:step(dt)  -- M8:计时/检查点/发车状态机(ctrl:step 后)
-	-- M5:能量与水晶(ctrl:step 后,读最新遥测)
-	energy:step(dt)
-	field:step(bike.PrimaryPart and bike.PrimaryPart.Position or nil, dt)
-	shooters:step(dt)  -- 射手节拍/子弹推进(attack:step 前:弹反缓冲优先于吃弹)
-	attack:step(dt)  -- M7:维护锁定/窗口(ctrl:step 后,用最新位置)
+	fixed:update(dt, function(stepDt)
+		ctrl:step(stepDt)
+		timer:step(stepDt)  -- M8:计时/检查点/发车状态机(ctrl:step 后;计时=步数×1/60)
+		-- M5:能量与水晶(ctrl:step 后,读最新遥测)
+		energy:step(stepDt)
+		field:step(bike.PrimaryPart and bike.PrimaryPart.Position or nil, stepDt)
+		shooters:step(stepDt)  -- 射手节拍/子弹推进(attack:step 前:弹反缓冲优先于吃弹)
+		attack:step(stepDt)  -- M7:维护锁定/窗口(ctrl:step 后,用最新位置)
+	end)
 	local t = ctrl:getTelemetry()
 	local et = energy:getTelemetry()
 	local at = attack:getTelemetry()
@@ -499,6 +510,7 @@ end)
 local clock = 0
 RunS.RenderStepped:Connect(function(dt)
 	if not bike.PrimaryPart then return end
+	ctrl:renderInterpolate(fixed:alpha())  -- M4.1:两物理步间插值写渲染位姿(高帧率平滑)
 	rig:update(dt)
 	-- M8:绿灯后 GO! 短暂停留再渐隐;倒计时期间大数字实时显示
 	local rtState = timer:getTelemetry().state
