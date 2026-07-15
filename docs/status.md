@@ -35,7 +35,7 @@
 - **M8.5 工作流(ADR-41):** 人类拖 CP 画路线 → 改 `TrackSpecs`(或用 Default=§7 模板)→ Edit 跑 `buildtrack.lua`(MODE=compile)→ 看报告(节拍实际 vs 模板/断口三档/供给两桶/墙链夹角/机器人时间)→ ❌ 几何=挪 CP,⚠️ 摆放=已自动顺移只需过目 → Play 试驾。改一版=重跑一次,分钟级。
 - Workspace.NeonRun.**CombatRig**(@(-1200,200,-200) 直道 40×2×800,地板已打 Rideable):EnergyCore ×4/CombatShooterA·B/发车标线;主赛道 TrackShooter1@(-91,11,-440)、TrackShooter2@(-134,5,-515)、旧 M7 靶已核化 EnergyCore_1~3。
 - Tag 计数:EnergyCore 7/ShooterEnemy 4/Destructible 1/Rideable 1/SlashEnemy 0/ParryEnemy 0。
-- **Rojo serve 活跃**(repo 改动即时同步;`.Source` 推送只作断连兜底,推前先查)。
+- **远程 Studio 通路(2026-07-14 实测):** Studio 跑在局域网 Windows 机 `192.168.110.168`(用户 Ymz);MCP=全局配置的 SSH stdio 桥(这台 Linux → 那台的 Roblox 官方 `mcp.bat`,**SSH 已实测通**;工具出现的前提=那头 Studio 开着且 MCP 插件已连,然后本会话 set_active)。**Rojo:本项目 serve 已起在 `192.168.110.69:34873`**(Studio 端 Rojo 插件填此地址连;3087/9908/34872/8123 被其他工位占用勿撞)。`.Source` 推送只作断连兜底,推前先查。**⚠️ repo 无 .rbxl:place 只存在于 Studio 侧,下次 Studio 会话务必存一份 .rbxl 进 repo(灾难还原点,CLAUDE.md 义务)。**
 - Workspace.NeonRun:ControlPoints CP01~09(Index 定序)/SplineViz ~230 件/SpikeSite 7 台(y≈200~370)。
 - Workspace.Motorcycle:PrimaryPart=BikeRoot(2×2.5×7),66 件焊接,Root 锚定;备份 ServerStorage.NeonRun.Backup。
 - 模板脚本与 RaceGui 均 Disabled(勿删);测试走廊沙丘最高 y=138。
