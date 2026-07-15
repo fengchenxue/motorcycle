@@ -1,8 +1,10 @@
--- NeonRun / CrystalField —— 能量水晶实体(M5 保底收入渠道 + M8.1 磁吸)
--- 策划案 §4.5:主行车线摆水晶,进磁吸半径 CrystalMagnetRadius(7)即"捕获"入账 +CrystalGain(受 CrystalCap),
+-- NeonRun / CrystalField —— 能量水晶实体(M5 保底收入渠道 + M8.1 磁吸 + ADR-42 满蓝不捕获)
+-- 策划案 §4.5:主行车线摆水晶,进磁吸半径 CrystalMagnetRadius(7)即尝试捕获 +CrystalGain(受 CrystalCap),
 --   并飞向玩家(纯表现)。CollectionService Tag="EnergyCrystal";捕获→冷却→回家复现。纯表现/拾取层。
 -- 磁吸边界=拾取边界:进半径即入账(确定性,验收"磁吸半径边界拾取");飞入动画不影响入账时机。
--- 用法:local field = CrystalField.new(function() energy:addCrystal() end); field:step(bikePos, dt)
+-- ADR-42:回调返回入账 delta——**≤0(蓝区已满)则不捕获、留在原地**,持槽点火不再销毁沿途供给;
+--   回调无返回值(nil)按旧语义捕获(兼容计数型回调)。
+-- 用法:local field = CrystalField.new(function() return energy:addCrystal() end); field:step(bikePos, dt)
 local CS = game:GetService("CollectionService")
 local RS = game:GetService("ReplicatedStorage")
 
@@ -69,11 +71,14 @@ function CrystalField:step(bikePos, dt)
 				state.cooldown = math.max(0, state.cooldown - dt)
 				if state.cooldown == 0 then self:_setAvailable(part, state, true) end
 			else
-				-- 可用:进磁吸半径即"捕获"——立刻入账(边界确定性),随后飞入玩家(纯表现)
+				-- 可用:进磁吸半径尝试捕获——立刻入账(边界确定性),随后飞入玩家(纯表现)。
+				-- ADR-42:回调返回 ≤0(蓝区已满)则不捕获、留在原地,骑过白吃不再销毁供给。
 				if (state.homePos - bikePos).Magnitude <= radius then
-					state.cooldown = self.cooldown
-					state.flyT = FLY_SEC
-					if self.onPickup then self.onPickup(part) end
+					local gained = self.onPickup and self.onPickup(part) or nil
+					if gained == nil or (type(gained) == "number" and gained > 0) then
+						state.cooldown = self.cooldown
+						state.flyT = FLY_SEC
+					end
 				end
 			end
 		end

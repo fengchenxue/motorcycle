@@ -152,8 +152,8 @@ shooter(-2050, 8, "B")
 core(-1900, 12); core(-2150, -12)
 crystal(-1850, 0); crystal(-2100, 0)
 -- 闸门:Destructible,覆左半幅(x 682~698),右侧可绕(§7 主路线永不强制斩击)。
--- ⚠️ 现行约定 CanCollide=false(AttackSystem 斩后只隐形不切碰撞;物理阻挡版归 M8.5 P3)。
-mk{ name = "EnergyGate", tag = "Destructible", size = Vector3.new(16, 10, 1),
+-- ADR-42:未斩=实体墙走碰撞三档;斩后 AttackSystem 切物性(CanCollide/CanQuery 关),R 复原。
+mk{ name = "EnergyGate", tag = "Destructible", size = Vector3.new(16, 10, 1), collide = true, query = true,
 	color = Color3.fromRGB(255, 80, 40), pos = roadTopPos(-1990, 700, -10, 5) }
 
 -- Z4 跳跃段:20°/30° 楔形坡(Rideable,可绕行)+ 理论落点条纹(纯视觉,CanQuery=false)

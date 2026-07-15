@@ -181,7 +181,8 @@ local vfx = BikeVFX.new(bike, ctrl)
 
 -- M5:能量系统(订阅 ctrl 事件) + 水晶场(拾取→加能);心流→相机档
 local energy = EnergyState.new(ctrl)
-local field = CrystalField.new(function() energy:addCrystal() end)
+-- ADR-42:回调返回入账 delta——蓝区已满时 addCrystal 返回 0 → 水晶不捕获、留在原地
+local field = CrystalField.new(function() return energy:addCrystal() end)
 energy:on("flowStart", function() rig:setFlow(true); ctrl:setFlowBoost(true) end)   -- ADR-31 心流升档接线
 energy:on("flowEnd", function() rig:setFlow(false); ctrl:setFlowBoost(false) end)
 -- M8.1 能量表现层:空箱红闪 / 点火尖峰 / 蓝区已满 toast(计时器在 RenderStepped 衰减)

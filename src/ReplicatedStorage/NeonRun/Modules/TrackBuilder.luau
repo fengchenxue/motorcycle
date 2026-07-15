@@ -361,7 +361,20 @@ function TrackBuilder.buildContent(spline, segs, spec, gaps, totalSec)
 		end
 	end
 
-	-- 红区:逐段按声明摆(判定点只落直线点;入弯自动顺移+间距守卫)
+	-- 墙带弧长区间(先算:①判定点排除区——§7"墙段内不摆判定点/射手";②墙带生成同源使用)
+	local wallSpans = {}
+	for _, sg in ipairs(segs) do
+		local d = sg.def
+		if d.wallSec and d.wallSec > 0 then
+			local spanLen = (sg.t1 - sg.t0) * spline.Length
+			local wallLen = math.min((d.wallSec / totalSec) * spline.Length, spanLen * 0.9)
+			local startT = sg.t0 + ((sg.t1 - sg.t0) - wallLen / spline.Length) * 0.5
+			wallSpans[#wallSpans + 1] = { fromT = startT, toT = startT + wallLen / spline.Length,
+				side = d.wallSide or 1, segIndex = sg.index }
+		end
+	end
+
+	-- 红区:逐段按声明摆(判定点只落直线点;入弯自动顺移+间距守卫;缺口与墙段区间内不摆)
 	local minSpacingT = CC.MinCombatSpacingStuds / spline.Length
 	for _, sg in ipairs(segs) do
 		local d = sg.def
@@ -375,15 +388,17 @@ function TrackBuilder.buildContent(spline, segs, spec, gaps, totalSec)
 			for si, kind in ipairs(kinds) do
 				local t = sg.t0 + (sg.t1 - sg.t0) * (si / (slots + 1))
 				local moved = false
-				-- 直线点搜索(段内,避缺口)
-				if localTurnDeg(spline, t) > straightMax or tInGaps(t, gaps) then
+				-- 直线点搜索(段内;避缺口与墙段区间——§7 墙段内不摆判定点/射手)
+				local function badSpot(tq)
+					return tInGaps(tq, gaps) or tInGaps(tq, wallSpans) or localTurnDeg(spline, tq) > straightMax
+				end
+				if badSpot(t) then
 					local stepT = CC.StraightSearchStepStuds / spline.Length
 					local found = nil
 					for k = 1, 80 do
 						for _, dir in ipairs({ 1, -1 }) do
 							local t2 = t + dir * k * stepT
-							if t2 > sg.t0 and t2 < sg.t1 and not tInGaps(t2, gaps)
-								and localTurnDeg(spline, t2) <= straightMax then
+							if t2 > sg.t0 and t2 < sg.t1 and not badSpot(t2) then
 								found = t2
 								break
 							end
@@ -392,7 +407,7 @@ function TrackBuilder.buildContent(spline, segs, spec, gaps, totalSec)
 					end
 					if found then t, moved = found, true
 					else
-						placed.notes[#placed.notes + 1] = string.format("段%d:%s 无直线落点(整段弯),请拉直或移出本段", sg.index, kind)
+						placed.notes[#placed.notes + 1] = string.format("段%d:%s 无合法落点(整段弯/被墙段与缺口占满),请拉直或移出本段", sg.index, kind)
 						t = nil
 					end
 				end
@@ -404,7 +419,7 @@ function TrackBuilder.buildContent(spline, segs, spec, gaps, totalSec)
 							moved = true
 						end
 					end
-					if t >= sg.t1 or tInGaps(t, gaps) then
+					if t >= sg.t1 or badSpot(t) then
 						placed.notes[#placed.notes + 1] = string.format("段%d:%s 间距挤不下(段太短/判定点太密)", sg.index, kind)
 						t = nil
 					end
@@ -423,10 +438,12 @@ function TrackBuilder.buildContent(spline, segs, spec, gaps, totalSec)
 						itemAt("Core", "EnergyCore", Vector3.new(4, 4, 4), nil,
 							Color3.fromRGB(180, 0, 255), t, side * CC.CoreLateral)
 						placed.cores += 1
-					else -- gate:覆半幅内(§7 主路线永不强制斩击=必可绕行);CanCollide=false 现行约定(已知问题⑧)
+					else -- gate:覆半幅内(§7 主路线永不强制斩击=必可绕行);ADR-42:未斩=实体墙(斩后 AttackSystem 切物性)
 						local w = R.Width * CC.GateCoverFrac
-						itemAt("EnergyGate", "Destructible", Vector3.new(w, 10, 1), nil,
+						local gp = itemAt("EnergyGate", "Destructible", Vector3.new(w, 10, 1), nil,
 							Color3.fromRGB(255, 80, 40), t, side * (R.Width / 2 - w / 2), 3.4)
+						gp.CanCollide = true
+						gp.CanQuery = true
 						placed.gates += 1
 					end
 				end
@@ -434,15 +451,13 @@ function TrackBuilder.buildContent(spline, segs, spec, gaps, totalSec)
 		end
 	end
 
-	-- 墙带:直墙链(ADR-41 曲墙=离散直墙链;单段守 M6.5 数据模型 Size=(厚,高,长),±X 贴面)
-	for _, sg in ipairs(segs) do
-		local d = sg.def
-		if d.wallSec and d.wallSec > 0 then
-			local side = d.wallSide or 1
-			local wallLen = (d.wallSec / totalSec) * spline.Length
-			local spanLen = (sg.t1 - sg.t0) * spline.Length
-			wallLen = math.min(wallLen, spanLen * 0.9)
-			local startT = sg.t0 + ((sg.t1 - sg.t0) - wallLen / spline.Length) * 0.5
+	-- 墙带:直墙链(ADR-41 曲墙=离散直墙链;单段守 M6.5 数据模型 Size=(厚,高,长),±X 贴面);
+	-- 区间=上面算好的 wallSpans(与判定点排除区同源,§7)
+	for _, ws in ipairs(wallSpans) do
+		do
+			local side = ws.side
+			local wallLen = (ws.toT - ws.fromT) * spline.Length
+			local startT = ws.fromT
 			local n = math.max(1, math.floor(wallLen / C.Wall.SegmentLengthStuds))
 			local step = wallLen / n
 			local prevLook = nil
@@ -458,7 +473,7 @@ function TrackBuilder.buildContent(spline, segs, spec, gaps, totalSec)
 				prevLook = lookH
 				local center = cf.Position + cf.RightVector * side * (R.Width / 2 + C.Wall.OffsetFromEdge + C.Wall.Thickness / 2)
 					+ Vector3.new(0, C.Wall.Height / 2 - R.SinkBelowSpline, 0)
-				local p = part(string.format("WallSeg%d_%02d", sg.index, i + 1),
+				local p = part(string.format("WallSeg%d_%02d", ws.segIndex, i + 1),
 					Vector3.new(C.Wall.Thickness, C.Wall.Height, step * (1 + C.Wall.OverlapFrac)),
 					CFrame.lookAt(center, center + lookH), Color3.fromRGB(0, 180, 220), folder)
 				CS:AddTag(p, "WallRideSurface")

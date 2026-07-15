@@ -72,7 +72,13 @@ end
 function AttackSystem:_registerStatic(part, kind)
 	if not part:IsA("BasePart") then return end
 	self:_lintStraight(part)
-	self.targets[part] = { kind = kind, dead = false, baseTransparency = part.Transparency, telegraphed = false }
+	self.targets[part] = {
+		kind = kind, dead = false, telegraphed = false,
+		baseTransparency = part.Transparency,
+		-- ADR-42:可破坏门=实体墙,斩杀须真切物性;记原值供 R 复原
+		baseCanCollide = part.CanCollide,
+		baseCanQuery = part.CanQuery,
+	}
 end
 
 -- 运行时对象注册(子弹/射手本体):onHit(part) 做领域处理(消散/击杀/改写目标),revive() 供 reset 复活
@@ -83,6 +89,8 @@ function AttackSystem:registerTarget(part, opts)
 		onHit = opts.onHit,
 		revive = opts.revive,
 		baseTransparency = part:IsA("BasePart") and part.Transparency or 0,
+		baseCanCollide = part:IsA("BasePart") and part.CanCollide or nil,
+		baseCanQuery = part:IsA("BasePart") and part.CanQuery or nil,
 		telegraphed = false,
 	}
 end
@@ -113,9 +121,13 @@ function AttackSystem:_inHitbox(pos)
 		and math.abs(rel.Y) <= C("Combat", "HitboxUp")
 end
 
--- 默认击毁表现:隐藏 + 关灯(灰盒;正式 VFX 由表现层订阅 hit 事件)
+-- 默认击毁:隐藏+关灯+**切物性**(ADR-42:斩开的门必须真的不在了——碰撞/射线一并关,R 复原)
 local function defaultKill(part)
 	part.Transparency = 1
+	if part:IsA("BasePart") then
+		part.CanCollide = false
+		part.CanQuery = false
+	end
 	for _, d in ipairs(part:GetDescendants()) do
 		if d:IsA("PointLight") or d:IsA("SurfaceLight") or d:IsA("SpotLight") then d.Enabled = false end
 	end
@@ -204,6 +216,9 @@ function AttackSystem:reset()
 				info.revive(part)
 			elseif part.Parent then
 				part.Transparency = info.baseTransparency
+				-- ADR-42:物性随复活还原(实体门回到挡路态)
+				if info.baseCanCollide ~= nil then part.CanCollide = info.baseCanCollide end
+				if info.baseCanQuery ~= nil then part.CanQuery = info.baseCanQuery end
 				for _, d in ipairs(part:GetDescendants()) do
 					if d:IsA("PointLight") or d:IsA("SurfaceLight") or d:IsA("SpotLight") then d.Enabled = true end
 				end

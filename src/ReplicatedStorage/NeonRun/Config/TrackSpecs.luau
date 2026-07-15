@@ -21,7 +21,7 @@ return {
 			{ type = "thrill", sec = 12, jump = true },                      -- 爽段(长下坡+坡顶跳;坡=CP 画)
 			{ type = "fork",   sec = 10, wallSec = 3, wallSide = 1 },        -- 分叉段:主线宽弯+右侧贴墙捷径
 			{ type = "sweeps", sec = 14, gates = 1 },                        -- 技巧弯组变奏+能量闸门
-			{ type = "climax", sec = 12, wallSec = 4, wallSide = -1, cores = 2 }, -- 高潮连段:墙段+落点双核
+			{ type = "climax", sec = 12, wallSec = 4, wallSide = -1, cores = 2, shooters = 1 }, -- 高潮连段:墙段+落点双核+守点敌(敌合计 3,合参考密度)
 			{ type = "finish", sec = 10 },                                   -- 冲线直线
 		},
 		supply = { crystals = 14 },
