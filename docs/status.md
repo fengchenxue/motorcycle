@@ -6,16 +6,16 @@
 
 ## 快照(覆盖式)
 
-- **更新:** 2026-07-15(第二会话,云端→Studio MCP 实连)。**验收积压:四笔清三笔全绿,M8.5 因 Studio 断线中断。**
+- **更新:** 2026-07-15(第二会话回填 → 本机现场对账)。**代码线已提交对齐(repo 23 脚本+TestDrive);Studio 场景复核保存完好、未回滚、selfcheck 全绿;验收三笔全绿,M8.5 accept 仍待跑。**
   ① 代码对齐:全 24 脚本 repo↔Studio 哈希比对(len+djb2),仅 BikeVFX/Handling 为旧迭代 → 按断连兜底 `.Source` 推平(逐字节=repo)。**Rojo 插件断连真凶=插件版本≠服务端 7.7.0**(控制台 `Can't parse JSON` 刷屏=msgpack 应答被 JSON 解析,坑 25 插件侧;人工在 Studio 更新插件)。
   ② **表现层速度线冒烟 23/23 ✅**(dt=1/60:淡入 12+1 帧到 1/淡出 15+1 帧到 0/钉相机同帧/归零停写/火花 linger 0.3s/destroy 零残留);清掉 Studio 残留 4 个 `VFX_SpeedLineImage*` 旧迭代属性,VFX 键=8 与 repo 对齐。**功能确认完毕,代码已提交。**
   ③ **accept_m8_1:20/20 ✅**;**accept_m6_5:42/42 ✅**(首跑坡顶 4 败,根因=Rig3_Basin 漏 Rideable Tag+坑 26 信号时序;修复后坡顶基准 117/85/(1500,-17.5,-538.2) 逐字复现=**M4.1 物理零变化实证**);**accept_m4_1:29/29 ✅**(修 4 处用例缺陷:穿透判据限墙 z 范围/重摔 Speed_Base 临时置 0=纯垂直/掠顶悬滑改平顶障碍=已知问题⑪确定性复现/射手改路边位才走 shooterAhead)。seed_m6_5/m4_1 重跑=+0(键全在;Handling 实测 106 属性、Energy 17)。
-- **中断点:** `accept_m8_5` 派发瞬间 Studio 掉线(脚本未开始执行,场上 ControlPoints 未动)。**⚠️ 未确认 Studio 是否保存**——未保存则本会话 Edit 态全回滚(.Source 推送×2/Rig3 三件+Basin 的 Rideable Tag/WallRig/M41Rig 测试台),重开后先跑哈希比对,缺则重推重种(全部有脚本,分钟级)。另:Team Create 有协作者在线(Lee_WL67),场景可能被他人改动。
+- **中断点(已复核):** 上会话 `accept_m8_5` 派发瞬间 Studio 掉线(脚本未开始执行,场上 ControlPoints 未动),该验收仍待跑。**✅ 场景保存完好、未回滚**——本机 selfcheck 复核:18 模块/Handling 106/Energy 17/Rideable 294/CP 13/Gauntlet 37/StreamingEnabled=false 全绿,上会话 Edit 态(.Source 推送/Rig3+Basin Tag/WallRig/M41Rig)均在;逐字节哈希未复跑,动代码前按接手任务补。**遗留偏差:** 一个游离 `WallRide_L`(带 WallRideSurface Tag、size 同 Gauntlet 版)直挂 Workspace 根 @(691,245,-3240),疑协作者(Lee_WL67)/旧 build 残留,赛道验收前确认清理(坑 21)。
 - **重心:** V1 可玩 demo。**下一棒=带 Studio 清尾:** ① `accept_m8_5`(八组,自动备份还原 CP)② 重跑 `build_gauntlet`(实体闸门对齐 ADR-42)→ `bake_anchors` ③ `selfcheck` 全 OK ④ `jumptable` 出跳距表 ⑤ Play 全功能试骑+**M6.5 人工三项(必停)**+速度线三项拍板 ⑥ **存 .rbxl 进 repo** → 然后 **M9a/b 首图**(人类导演)→ M9.5 → M10 = demo;M11/12/13 后置。
 - **里程碑:** M0~M7 ✅(基准表);M2.1 待核实;M8 🔶 仅客户端(归 M12);**M8.1 ✅ Studio 验收 20/20(2026-07-15)**;**M6.5 自动验收 ✅ 42/42,剩人工三项(必停)**;**M4.1 ✅ Studio 验收 29/29**;**M8.5 P2~P4 代码✅,accept 断线待跑**;试炼道生成✅(场上仍旧代码版,重跑对齐)Play 全功能试骑未跑;**表现层速度线:代码✅冒烟✅,待人工拍板**。
 - **待拍板(人类):** ① 手感参数统一调(`Combat_*`/心流 AB 旋钮属性面板实时生效);④ M6.5 手感三项(**自动验收已全绿,试玩后拍板**):进入宽容度(`WallRide_EnterWindowStuds/EnterMaxAngleDeg/EnterTowardMinSpeed/EnterMinSpeed`)/高度带速率与"下坠漂移"开关(`WallRide_HeightBandSpeed`/`FallDriftPerSec`=0 关)/相机滚转速度(`WallRide_CamRollSec`);⑤ **最小点火×心流尾段**(现默认=延续,备选=尾段豁免;M9.5 AB,旋钮 `MinIgnitionBurnSec`);⑥ **Streaming 根本方案**(现=灰盒期关闭;重开需样条锚点持久化 `ModelStreamingMode=Persistent` 或坐标迁 ReplicatedStorage,**移动端长赛道 demo 前必解**,坑 24);⑦ **速度线三项**(线布局 `BikeVFX.SPEEDLINE_OFFSETS`/粒子浓度 `VFX_SpeedLineParticleRate`/流速 `VFX_SpeedLineFlowSpeed`,属性面板实时调)。**已拍板归档(2026-07-14):** 贴墙=B(ADR-36)/能量两轨(ADR-37)/射手只打前方(ADR-38)/输入分层+松键宽限(ADR-39)/节拍模板初版(§7)/名称沿用 NEON RUN/测试赛道 AI 全生成(ADR-40)/赛道声明混合制(ADR-41,选 C)/满蓝不捕获+墙门三型(ADR-42)。
 - **已知问题:** ③ TrackShooter1 落位偏高(y=11,人类拖正即可,Tag 已带);④ 剑光/弹反/点火音效缺 assetId(事件钩子已留;BikeAudio 点火 whoosh 已读有效 sprinting);⑥ `Combat_DebugHitbox=true` 临时判定盒可视化,正式版前移除;⑧〔已解,ADR-42〕defaultKill 切物性;闸门=实体墙摆放(**场上 gauntlet 闸门仍旧非实体版,重跑即对齐**);⑨ M6.5 墙态内不做障碍扫掠与坠落判定(墙段按 soft lint 干净授权);⑩ 下缘回地有 ≤悬浮高(1.6)的一帧上吸(人工验收留意);⑪ 轻掠非可骑面顶=悬浮 1.6 滑过、不落地不吸附(**已由 accept_m4_1③ 平顶障碍用例确定性复现:hover>0、零穿透、不落地**;悬滑窗口仅 0.64 studs,斜面石头掠顶=正确判硬撞;试玩留意观感)。**已解:** ①石头忽弹忽减→定档一次性、②撞墙卡出墙外→帧末去穿透钳制(**accept_m4_1 29/29 实证**);⑤ READY 脉冲+点火白闪(accept_m8_1 20/20 实证);⑦ graze 回能路径已删;Streaming 提前完赛→已关闭(根本方案=待拍板⑥)。**推迟项(backlog):** 墙带默认弯内侧/compile 报告加"冲刺时间预算"行(M9 前顺手)/分段门参照改机器人 split/**"能量归零时长占比"埋点(M9.5 必需)**/CrystalField 冷却常量入 Config。
-- **⚠️ 接手第一任务:** 带 Studio(重连后 `list_roblox_studios`→`set_active`;**先跑哈希比对**,场景回滚则重推 .Source+重种 Tag,全部有脚本)→ ① `tools/accept_m8_5.lua` 八组,**回填** ② **重跑 `tools/build_gauntlet.lua`**(实体闸门)→ **`tools/bake_anchors.lua`**(selfcheck respawnAnchors>0)③ `tools/selfcheck.lua` 全 OK(Handling 106 属性口径顺带核)④ `tools/jumptable.lua` 出跳距表(校准 Z4 条纹)⑤ Play 试骑:gauntlet 全功能(磁吸边界/闸门未斩挡路·斩后可穿/贴墙段/跳距对条纹)+ M8.1 表现层 + **速度线拍板(待拍板⑦)** + **M6.5 人工三项(必停,待拍板④)** + M4.1 抽查(重生 0.5s 输入保护/高刷插值顺滑)⑥ **存一份 .rbxl 进 repo**(灾难还原点,现缺)。纯代码线保持清空——下一棒=**M9a/b 首图**(人类导演,带 Studio)。
+- **⚠️ 接手第一任务:** 带 Studio(**本机已对账 2026-07-15:场景未回滚、selfcheck 全绿**;id 每次重连变,`list_roblox_studios`→`set_active` 即可;新会话先哈希比对兜底)→ ⓪ **确认/清理游离 `WallRide_L`@Workspace 根 (691,245,-3240)**(坑 21,赛道验收前挪走)→ ① `tools/accept_m8_5.lua` 八组,**回填** ② **重跑 `tools/build_gauntlet.lua`**(实体闸门)→ **`tools/bake_anchors.lua`**(selfcheck respawnAnchors>0)③ `tools/selfcheck.lua` 全 OK(Handling 106 属性口径顺带核)④ `tools/jumptable.lua` 出跳距表(校准 Z4 条纹)⑤ Play 试骑:gauntlet 全功能(磁吸边界/闸门未斩挡路·斩后可穿/贴墙段/跳距对条纹)+ M8.1 表现层 + **速度线拍板(待拍板⑦)** + **M6.5 人工三项(必停,待拍板④)** + M4.1 抽查(重生 0.5s 输入保护/高刷插值顺滑)⑥ **存一份 .rbxl 进 repo**(灾难还原点,现缺)。纯代码线保持清空——下一棒=**M9a/b 首图**(人类导演,带 Studio)。
 
 ## TrackBuilder P1 验证清单(原 handoff 并入)
 
@@ -29,7 +29,7 @@
 
 ## Studio 侧状态(覆盖式)
 
-(截至 2026-07-15 晚;**⚠️ Studio 会话中途掉线,以下为掉线前实测,是否已保存未确认**——重开后先跑哈希比对核实,回滚则按脚本重推/重种,分钟级)
+(截至 2026-07-15,本机现场对账;**✅ 已复核:场景保存完好、未回滚**——selfcheck 结构核对全绿,下列计数均本次实测;逐字节哈希未复跑,动代码前按接手任务补)
 
 - **代码同步:** repo 23 脚本(Modules 18+Config 5)+TestDrive = Studio 哈希逐字节一致(2026-07-15 全量 djb2 比对;BikeVFX/Handling 经 `.Source` 兜底推平)。**Rojo 插件断连中:插件版本≠服务端 7.7.0(`Can't parse JSON` 刷屏)——人工更新 Studio 端插件到 7.7.0,只留一份插件(坑 25)。**
 - **✅ M8.1 已种+验收 20/20:** Energy 17 键(实测)。分段门拱门=运行时客户端建(非持久)。
@@ -37,9 +37,9 @@
 - **✅ M4.1 已种+验收 29/29:** seed +0(6 键全在);**M41Rig 已建**(常驻 @(-2400,200,-550):地板 300×900 Rideable + 矩阵墙 + 三旋转石头,墙石无 Tag=障碍)。**Rig3 走廊白名单收尾:Rig3_Ramp/FlatA/FlatB + Rig3_Basin(坡底盆地,顶面 y=-19.1)已补 Rideable Tag**——Basin 漏打=坡顶基准漂移前科(117/85→142/110),accept 预检射线已深探 320 覆盖(坑 26)。锚点链:场上 RespawnAnchors 仍无,赛道就绪后跑 `tools/bake_anchors.lua`。
 - **Handling Attributes:实测 106**(含 VFX_ 8 键;已清 4 个 `VFX_SpeedLineImage*` 旧迭代残留);Energy 17;Config 含 TrackSpecs(ADR-41 声明表)。
 - **试炼道(旧代码版,本会话未动):** CP01~13 + `Workspace.NeonRun.Gauntlet` 37 件 + Track.Road 855 children;无锚点/无 CheckpointTs;闸门=旧非实体版——**重跑 build_gauntlet/compile 对齐 ADR-42,再 bake_anchors**。`accept_m8_5` 未跑(断线时脚本未开始,ControlPoints 未被动过)。**Play 全功能试骑未跑。**
-- Tag 计数(2026-07-15 实测):**Rideable 294**(285 板+2 坡+CombatRig 地板+WallRig 地板+M41Rig 地板+Rig3 三件+Basin;较上口径 288 +6)/EnergyCrystal 27/EnergyCore 11/ShooterEnemy 7/Destructible 2/WallRideSurface 2+WallRig 墙 1(以 selfcheck 复核为准)/SlashEnemy 0/ParryEnemy 0。
+- Tag 计数(2026-07-15 实测):**Rideable 294**(285 板+2 坡+CombatRig 地板+WallRig 地板+M41Rig 地板+Rig3 三件+Basin;较上口径 288 +6)/EnergyCrystal 27/EnergyCore 11/ShooterEnemy 7/Destructible 2/WallRideSurface 4(selfcheck 复核=Gauntlet 2+WallRig 墙 1+游离 WallRide_L 1@Workspace 根 (691,245,-3240) 待清)/SlashEnemy 0/ParryEnemy 0。
 - **StreamingEnabled=false**(已持久到场景;根本方案=待拍板⑥,坑 24)。
-- **远程 Studio 通路(2026-07-15 实连实测):** Studio 在局域网 Windows `192.168.110.168`(Ymz),MCP=SSH stdio 桥,list→set_active→execute 全链路通;**掉线后 Studio id 会变,重连后重新 set_active(坑 6)**。**Rojo:serve 常驻 tmux `ljx-rojo-motorcycle`,监听 `192.168.110.69:34873`,服务端=工作区 bin 7.7.0 正式版(msgpack 口径已核)**;管理命令见 git 历史(0b6c747);`.Source` 推送只作断连兜底,推前先查哈希。**⚠️ repo 仍无 .rbxl:下次 Studio 会话务必存一份进 repo(灾难还原点,CLAUDE.md 义务)。**
+- **⚠️ repo 仍无 .rbxl:下次 Studio 会话务必存一份进 repo(灾难还原点,CLAUDE.md 义务)。**
 - Workspace.NeonRun:SplineViz 随 TB 重建/SpikeSite 7 台(不侵入试炼道走廊);Workspace.Motorcycle:PrimaryPart=BikeRoot,66 件焊接,Root 锚定;备份 ServerStorage.NeonRun.Backup;模板脚本与 RaceGui 均 Disabled(勿删);测试走廊沙丘最高 y=138。
 
 ---
