@@ -45,9 +45,30 @@ if eInst then
 		if eInst:GetAttribute(k) ~= nil then stray[#stray + 1] = k end
 	end
 	out.energyStrayGraze = #stray > 0 and table.concat(stray, ",") or "OK"   -- 期望 OK(旧擦墙字段已清)
+	-- M6.5:松键宽限键在、贴墙收入键除(缺/残留则 seed_m6_5_config.lua 补种;ADR-37/39)
+	out.energyM65Grace = eInst:GetAttribute("ReleaseGraceSec") ~= nil and "OK" or "MISSING"   -- 期望 OK
+	local strayWall = {}
+	for _, k in ipairs({ "WallRideGainPerSec", "WallRideMinSpeed" }) do
+		if eInst:GetAttribute(k) ~= nil then strayWall[#strayWall + 1] = k end
+	end
+	out.energyStrayWallRide = #strayWall > 0 and table.concat(strayWall, ",") or "OK"   -- 期望 OK(墙=经济中性)
 else
 	out.energyAttrs = "MISSING"
 end
+
+-- M6.5 Handling WallRide_* 键核对(ConfigLive 首次 bind 自动补;缺则 seed 或跑一次控制器)
+if h then
+	local missW = {}
+	for _, k in ipairs({ "WallRide_EnterWindowStuds", "WallRide_EnterMinSpeed", "WallRide_EnterMaxAngleDeg",
+		"WallRide_EnterTowardMinSpeed", "WallRide_BlendSec", "WallRide_HeightBandSpeed",
+		"WallRide_FallDriftPerSec", "WallRide_CamRollSec" }) do
+		if h:GetAttribute(k) == nil then missW[#missW + 1] = k end
+	end
+	out.handlingM65WallRide = #missW > 0 and table.concat(missW, ",") or "OK"   -- 期望 OK
+end
+
+-- M6.5 授权墙段计数(WallRideSurface Tag;测试台 WallRig 建后 ≥1)
+out.wallRideSurfaceTags = #game:GetService("CollectionService"):GetTagged("WallRideSurface")
 
 -- M8.1 静态战斗 Tag(闸门/核):Destructible=闸门 +15,EnergyCore=核 +25
 out.destructibleTags = #game:GetService("CollectionService"):GetTagged("Destructible")

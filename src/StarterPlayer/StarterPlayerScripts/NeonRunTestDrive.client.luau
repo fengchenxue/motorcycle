@@ -19,6 +19,7 @@ local AttackSystem = require(mods:WaitForChild("AttackSystem"))
 local RaceTimer = require(mods:WaitForChild("RaceTimer"))
 local ShooterField = require(mods:WaitForChild("ShooterField"))
 local BikeVFX = require(mods:WaitForChild("BikeVFX"))
+local WallRideField = require(mods:WaitForChild("WallRideField"))
 
 local cpFolder = workspace:WaitForChild("NeonRun"):WaitForChild("ControlPoints")
 local cp1 = cpFolder:WaitForChild("CP01")
@@ -150,6 +151,8 @@ do
 	for _, cp in ipairs(cps) do table.insert(pts, cp.Position) end
 	ctrl:setSpline(Spline.new(pts, TRACK_CLOSED))
 end
+-- M6.5:授权贴墙段(WallRideSurface Tag 注册表;场上无 Tag 则永不入墙,零影响)
+ctrl:setWallField(WallRideField.new())
 -- M4:硬撞/坠落转场占位——全屏青色故障闪屏,随 TransitionSec 淡出
 local crashFlash = Instance.new("Frame")
 crashFlash.Size = UDim2.new(1, 0, 1, 0)
@@ -486,7 +489,8 @@ RunS.Heartbeat:Connect(function(dt)
 	label.Text = string.format("M8 计时  |  速度 %d  |  能量 %d  |  %s%s%s%s  |  A/D·W/Shift冲·S刹·J斩·R重开",
 		math.floor(t.speed + 0.5),
 		math.floor(et.energy + 0.5),
-		rt.state == "finished" and "完赛" or (rt.state == "countdown" and "发车" or (t.grounded and "地面" or "空中")),
+		rt.state == "finished" and "完赛" or (rt.state == "countdown" and "发车"
+			or (t.wallRiding and "贴墙" or (t.grounded and "地面" or "空中"))),
 		t.sprinting and "·冲刺" or "",
 		et.flow and "·心流!" or "",
 		at.inVolume and "·可斩!" or "")

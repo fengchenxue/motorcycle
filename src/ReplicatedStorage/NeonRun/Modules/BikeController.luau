@@ -1,8 +1,11 @@
--- NeonRun / BikeController (M2 物理 + M3 视觉表现层 + M4 碰撞三档/快速重生)
+-- NeonRun / BikeController (M2 物理 + M3 视觉表现层 + M4 碰撞三档/快速重生 + M6.5 贴墙段)
 -- 高度/起飞判定 = 中心探针;姿态法线 = 前后探针(ADR-4)。全参数走 Config/Handling Attributes。
 -- M3:物理位置 = self.physPos(独立状态);root.CFrame = 物理位姿 × 视觉叠加。视觉量绝不回流物理。
--- M4:碰撞三档(ADR-6)——擦碰(滑墙泄速+回能事件)/硬撞(转场→样条最近点重生,恢复60%速度)/坠落(同硬撞)。
+-- M4:碰撞三档(ADR-6)——擦碰(滑墙泄速,纯惩罚)/硬撞(转场→样条最近点重生,恢复60%速度)/坠落(同硬撞)。
 --     事件:graze / hardHit / fell / respawned(供能量系统 M5 与表现层订阅)。
+-- M6.5:墙态(ADR-36 授权段磁吸)=与 crash/respawn 并列的独立分支,地面/空中路径零改动;
+--     进入=触发区探测(纯观察,命中翻状态)→段内磁吸 down=−墙法线+A/D 高度带→退出三种(段尾/上缘弹道、下缘回地)。
+--     墙=经济中性(ADR-37):墙态不发 graze、不置 wallContact,与能量零往来。
 local RS = game:GetService("ReplicatedStorage")
 
 local BikeController = {}
@@ -48,6 +51,9 @@ function BikeController.new(model)
 			table.insert(self.forkMotors, d)
 		end
 	end
+	-- M6.5 墙态(ADR-36):wall ≠ nil = 磁吸中;wallField 由 setWallField 注入(无场=永不入墙,老场景零影响)
+	self.wallField = nil
+	self.wall = nil
 	-- M4 状态
 	self.spline = nil        -- setSpline 注入(重生/坠落判定依赖)
 	self.respawnCF = nil     -- 检查点复活锚点(最近通过的门黄球);nil = 回退到样条最近点
@@ -79,6 +85,7 @@ function BikeController:applySpeedMultiplier(m)  -- M7:一次性速度惩罚(斩
 	self.curSpeed = math.max(0, self.curSpeed * math.clamp(m, 0, 1))
 end
 function BikeController:setSpline(sp) self.spline = sp end
+function BikeController:setWallField(f) self.wallField = f end  -- M6.5:注入授权墙段注册表(WallRideField)
 function BikeController:setRespawnCF(cf) self.respawnCF = cf end  -- 设当前复活锚点(过门/重开时外部更新)
 function BikeController:isRespawning() return self.respawnT ~= nil end
 -- 手动立即回到当前复活锚点(上个检查点黄球);绕过转场倒计时
@@ -106,6 +113,7 @@ function BikeController:teleport(cf, keepSpeedFrac)
 	self.yaw = math.atan2(-look.X, -look.Z)
 	self.physPos = cf.Position
 	self.smoothNormal = Vector3.yAxis
+	self.wall = nil             -- M6.5:R/重生/传送强制退墙态(E4-5)
 	self.curSpeed = self.curSpeed * (keepSpeedFrac or 0)
 	self.grounded = true
 	self.vy = 0
@@ -149,6 +157,9 @@ function BikeController:getTelemetry()
 		flowBoost = self.flowBoost,  -- ADR-31(HUD/仿真断言用)
 		respawning = self.respawnT ~= nil,
 		resetCount = self.resetCount,
+		-- M6.5 墙态(ADR-36):磁吸中 grounded=false 且 wallContact=false(墙态≠擦墙,经济中性)
+		wallRiding = self.wall ~= nil,
+		wallUp = self.wall and self.wall.n or nil,  -- 车体 up=墙外法线(相机 roll 目标)
 	}
 end
 
@@ -265,6 +276,54 @@ function BikeController:_sweepMove(pos, look, stepLen)
 	return move
 end
 
+-- 输入渐变(A/D 0.12s 渐入 / 0.20s 回正)——地面转向与墙上高度带共用(M6.5 抽取,数学逐位不变)
+function BikeController:_steerRamp(dt)
+	local C = self.cfg.get
+	local rampIn = C("Steering", "InputRampInSec")
+	local rampOut = C("Steering", "InputRampOutSec")
+	local engaging = math.abs(self.rawSteer) > math.abs(self.steer)
+		or (self.rawSteer ~= 0 and math.sign(self.rawSteer) ~= math.sign(self.steer))
+	local ramp = engaging and rampIn or rampOut
+	local maxDelta = dt / math.max(ramp, 1e-3)
+	self.steer += math.clamp(self.rawSteer - self.steer, -maxDelta, maxDelta)
+end
+
+-- 速度渐变(冲刺/轻刹/心流/提降速)——地面与墙态共用("前进沿墙切向复用速度渐变",ADR-36)
+-- M6.5 自 step 原样抽取,数学与求值顺序逐位不变;返回 sprintSpeed 供地面转向插值分母(锚 135)
+function BikeController:_speedStep(dt)
+	local C = self.cfg.get
+	local base = C("Speed", "Base")
+	local sprintSpeed = base * C("Speed", "SprintMultiplier")
+	-- ADR-31 心流升档:冲刺目标 ×FlowExtraMultiplier(总速≈146);flowBoost 滞后一帧无害
+	local maxSpeed = sprintSpeed * (self.flowBoost and C("Speed", "FlowExtraMultiplier") or 1)
+	-- M2.1 轻刹(S):刹车优先于冲刺。BrakeEnabled 实验开关关闭则无轻刹。
+	--   目标速度 = base × BrakeFloor;刹车时 sprint 被压制,永不乘 SprintMultiplier(=不抬目标=不耗能)。
+	--   渐入速率 = base×(1-BrakeFloor)/BrakeRampInSec ⇒ 巡航→地板 恰 BrakeRampInSec(clamp 积分,不硬置)。
+	-- M5:实际冲刺 = 输入冲刺 且 能量允许(空槽不能冲)。
+	local brakeOn = self.brake and (C("Speed", "BrakeEnabled") ~= false)
+	local brakeFloor = C("Speed", "BrakeFloor")
+	local brakeRampIn = math.max(C("Speed", "BrakeRampInSec"), 1e-3)
+	-- M8.1:实际冲刺 = (玩家按住 或 最小点火强制尾段)且 能量允许(ADR-13)。
+	-- 按住冲刺时 forcedSprint 恒为 false(EnergyState 只在"松键但未烧满 0.4s"时置 true),故按住路径逐位不变。
+	local sprintEff = (self.sprint or self.forcedSprint) and self.sprintAllowed
+	local targetSpeed
+	if brakeOn then
+		targetSpeed = base * brakeFloor
+	else
+		targetSpeed = sprintEff and maxSpeed or base
+	end
+	local rate
+	if brakeOn then
+		rate = base * (1 - brakeFloor) / brakeRampIn
+	else
+		local rampT = targetSpeed > self.curSpeed and C("Speed", "RampUpSec") or C("Speed", "RampDownSec")
+		rate = maxSpeed / math.max(rampT, 1e-3)
+	end
+	self.curSpeed += math.clamp(targetSpeed - self.curSpeed, -rate * dt, rate * dt)
+	self.brakeFrac = self.curSpeed / math.max(base, 1e-3)
+	return sprintSpeed
+end
+
 -- M3 视觉层:滚转弹簧/空中抬头/落地悬挂/前叉 Motor6D
 function BikeController:_visualStep(dt, baseCF)
 	local C = self.cfg.get
@@ -295,6 +354,98 @@ function BikeController:_visualStep(dt, baseCF)
 	self.root.CFrame = baseCF
 		* CFrame.new(0, self.suspY, 0)
 		* CFrame.Angles(math.rad(self.visualPitch), 0, math.rad(self.visualRoll))
+end
+
+-- ============================ M6.5 墙态(ADR-36/37,design §4.9) ============================
+
+-- 进入墙态:快照当前位姿作混合起点;前进方向锁墙切向;磁吸自下一帧接管
+function BikeController:_enterWall(hit)
+	local C = self.cfg.get
+	local look = Vector3.new(-math.sin(self.yaw), 0, -math.cos(self.yaw))
+	local sn = self.smoothNormal
+	local surfLook = look - sn * look:Dot(sn)
+	surfLook = (surfLook.Magnitude > 1e-4) and surfLook.Unit or look
+	local facePt = hit.seg.part.CFrame.Position + hit.n * hit.seg.halfT
+	self.wall = {
+		seg = hit.seg,
+		n = hit.n,          -- 墙外法线(墙态内 down=−n,车体 up=n)
+		along = hit.along,  -- 墙切向(已对齐入墙航向;直墙段内恒定)
+		blendT = 0,         -- 已混合时长(位置=法向偏移线性收敛;姿态=Rotation lerp)
+		offN0 = (self.physPos - facePt):Dot(hit.n) - C("Ground", "HoverHeight"),
+		startCF = CFrame.lookAt(self.physPos, self.physPos + surfLook, sn),
+		heightVel = 0,      -- 当前高度带速率(退出时交接为 vy)
+	}
+	-- 前进方向锁切向:yaw 即刻对齐(相机读 yaw 自然跟随)
+	self.yaw = math.atan2(-hit.along.X, -hit.along.Z)
+	self.grounded = false
+	self.vy = 0
+	self.vySurf = 0
+	self.wallContact = false   -- 墙态≠擦墙:不发 graze、无泄速、无火花(经济中性,ADR-37)
+	self._prevWall = false
+end
+
+-- 段内磁吸每帧:速度渐变复用 + A/D 高度带 + 法向钉扎 + 三种退出(E4-2)
+function BikeController:_wallStep(dt)
+	local C = self.cfg.get
+	local w = self.wall
+	local part = w.seg.part
+	if not part.Parent then
+		-- 墙实例消失(编辑操作兜底):按段尾弹道交接
+		self:_exitWall(w.heightVel)
+		return
+	end
+	self:_steerRamp(dt)
+	self:_speedStep(dt)   -- 冲刺/轻刹/心流/提降速与地面同一套("贴墙就是平地跑")
+
+	-- 高度带:A/D 沿车体右轴滑移(along×n=±世界Y:右墙 D=升,左墙 A=升,与相机滚转后的屏幕方向一致);
+	-- 下坠漂移(默认 0=关)恒向世界下,不受墙侧影响
+	local bikeRightY = w.along:Cross(w.n).Y
+	local hVel = (-self.steer) * C("WallRide", "HeightBandSpeed") * bikeRightY
+		- C("WallRide", "FallDriftPerSec")
+	w.heightVel = hVel
+
+	-- 推进:切向 × 当前速度 + 高度带;法向磁吸钉扎(混合期从入墙偏移线性收敛到悬浮高)
+	local pos = self.physPos + w.along * (self.curSpeed * dt) + Vector3.new(0, hVel * dt, 0)
+	local blendSec = math.max(C("WallRide", "BlendSec"), 1e-3)
+	local offN = 0
+	if w.blendT < blendSec then
+		w.blendT = math.min(w.blendT + dt, blendSec)
+		offN = w.offN0 * (1 - w.blendT / blendSec)
+	end
+	local facePt = part.CFrame.Position + w.n * w.seg.halfT
+	local hover = C("Ground", "HoverHeight")
+	pos += w.n * (hover + offN - (pos - facePt):Dot(w.n))
+	self.physPos = pos
+
+	-- 退出判定(墙局部坐标):|Z|>半长=段尾弹道交接;Y>上缘=弹出(墙上高度=落差跳距);Y<下缘=回地
+	local lp = part.CFrame:PointToObjectSpace(pos)
+	if math.abs(lp.Z) > w.seg.halfL or math.abs(lp.Y) > w.seg.halfH then
+		self:_exitWall(hVel)
+		return
+	end
+
+	-- 姿态:目标=贴墙框架(up=墙法线);混合期从入墙姿态过渡;视觉弹簧照常(steer 滚转=爬升压弯感)
+	local targetCF = CFrame.lookAt(pos, pos + w.along, w.n)
+	local baseCF = targetCF
+	if w.blendT < blendSec then
+		baseCF = w.startCF.Rotation:Lerp(targetCF.Rotation, w.blendT / blendSec) + pos
+	end
+	self:_visualStep(dt, baseCF)
+end
+
+-- 退出墙态:统一弹道交接——段尾/上缘=带高度带速率飞出(高台弹射);下缘=低空立即被着陆逻辑捕获回地
+function BikeController:_exitWall(vyOut)
+	local w = self.wall
+	self.wall = nil
+	self.grounded = false
+	self.vy = vyOut or 0
+	self.vySurf = 0
+	-- 姿态从墙法线起步,空中路径逐帧回正到世界 Y(AlignLerpSpeed 平滑,无跳变)
+	if w then
+		self.smoothNormal = w.n
+	end
+	-- yaw 已是切向;水平速度=curSpeed 沿切向,普通空中/着陆路径自此接管。
+	-- 退出后横向分速为 0 → 进入探测的朝墙分速阈值挡住立即回吸(EnterTowardMinSpeed)。
 end
 
 function BikeController:step(dt)
@@ -335,43 +486,14 @@ function BikeController:step(dt)
 	end
 	if self.bounceCD > 0 then self.bounceCD = math.max(0, self.bounceCD - dt) end
 
-	local rampIn = C("Steering", "InputRampInSec")
-	local rampOut = C("Steering", "InputRampOutSec")
-	local engaging = math.abs(self.rawSteer) > math.abs(self.steer)
-		or (self.rawSteer ~= 0 and math.sign(self.rawSteer) ~= math.sign(self.steer))
-	local ramp = engaging and rampIn or rampOut
-	local maxDelta = dt / math.max(ramp, 1e-3)
-	self.steer += math.clamp(self.rawSteer - self.steer, -maxDelta, maxDelta)
+	-- M6.5 墙态分支(ADR-36):磁吸中走独立路径;地面/空中代码在墙态帧完全不执行(零改动铁律)
+	if self.wall then
+		self:_wallStep(dt)
+		return
+	end
 
-	local base = C("Speed", "Base")
-	local sprintSpeed = base * C("Speed", "SprintMultiplier")
-	-- ADR-31 心流升档:冲刺目标 ×FlowExtraMultiplier(总速≈146);flowBoost 滞后一帧无害
-	local maxSpeed = sprintSpeed * (self.flowBoost and C("Speed", "FlowExtraMultiplier") or 1)
-	-- M2.1 轻刹(S):刹车优先于冲刺。BrakeEnabled 实验开关关闭则无轻刹。
-	--   目标速度 = base × BrakeFloor;刹车时 sprint 被压制,永不乘 SprintMultiplier(=不抬目标=不耗能)。
-	--   渐入速率 = base×(1-BrakeFloor)/BrakeRampInSec ⇒ 巡航→地板 恰 BrakeRampInSec(clamp 积分,不硬置)。
-	-- M5:实际冲刺 = 输入冲刺 且 能量允许(空槽不能冲)。
-	local brakeOn = self.brake and (C("Speed", "BrakeEnabled") ~= false)
-	local brakeFloor = C("Speed", "BrakeFloor")
-	local brakeRampIn = math.max(C("Speed", "BrakeRampInSec"), 1e-3)
-	-- M8.1:实际冲刺 = (玩家按住 或 最小点火强制尾段)且 能量允许(ADR-13)。
-	-- 按住冲刺时 forcedSprint 恒为 false(EnergyState 只在"松键但未烧满 0.4s"时置 true),故按住路径逐位不变。
-	local sprintEff = (self.sprint or self.forcedSprint) and self.sprintAllowed
-	local targetSpeed
-	if brakeOn then
-		targetSpeed = base * brakeFloor
-	else
-		targetSpeed = sprintEff and maxSpeed or base
-	end
-	local rate
-	if brakeOn then
-		rate = base * (1 - brakeFloor) / brakeRampIn
-	else
-		local rampT = targetSpeed > self.curSpeed and C("Speed", "RampUpSec") or C("Speed", "RampDownSec")
-		rate = maxSpeed / math.max(rampT, 1e-3)
-	end
-	self.curSpeed += math.clamp(targetSpeed - self.curSpeed, -rate * dt, rate * dt)
-	self.brakeFrac = self.curSpeed / math.max(base, 1e-3)
+	self:_steerRamp(dt)
+	local sprintSpeed = self:_speedStep(dt)
 	if self.wallContact then
 		self.curSpeed *= math.pow(C("Collision", "GrazeSlowdown"), dt * 6)
 	end
@@ -486,6 +608,20 @@ function BikeController:step(dt)
 	if surfLook.Magnitude < 1e-4 then surfLook = look else surfLook = surfLook.Unit end
 	self.physPos = newPos
 	self:_visualStep(dt, CFrame.lookAt(newPos, newPos + surfLook, normal))
+
+	-- M6.5 墙段进入探测(纯观察,本帧物理已按原路径走完;命中=下一帧起磁吸)。
+	-- 无 wallField 或场上无授权墙时此块恒空转 → 直线/坡顶回归零变化。
+	if self.wallField then
+		local hit = self.wallField:findEntry(self.physPos, look, self.curSpeed, {
+			window = C("WallRide", "EnterWindowStuds"),
+			minSpeed = C("WallRide", "EnterMinSpeed"),
+			maxAngleDeg = C("WallRide", "EnterMaxAngleDeg"),
+			minToward = C("WallRide", "EnterTowardMinSpeed"),
+		})
+		if hit then
+			self:_enterWall(hit)
+		end
+	end
 end
 
 function BikeController:destroy()

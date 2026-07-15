@@ -1,5 +1,7 @@
--- NeonRun / CameraRig (M3) —— 追逐相机
+-- NeonRun / CameraRig (M3 + M6.5) —— 追逐相机
 -- 位置弹簧滞后(FollowLagSec)/朝向低通慢半拍(YawLagSec)/冲刺 FOV 推进/冲刺震动/撞墙回退。
+-- M6.5:up 向量参数化(E4-3)——墙态 up 平滑滚向墙法线(roll≤90°,WallRide_CamRollSec),FOV 不变;
+--       地面 up 恒为世界 Y,数值逐位不变。
 -- 只读 ctrl 状态,不写任何物理。camera 可传任意 Camera 实例(便于 Edit 仿真验收)。
 local RS = game:GetService("ReplicatedStorage")
 
@@ -35,6 +37,7 @@ function CameraRig:snap()
 	local C = self.cfg.get
 	local look = self:_bikeLook()
 	self.smoothLook = look
+	self.upVec = Vector3.yAxis  -- M6.5:up 状态复位(重生/重开即刻回正)
 	local target = self.ctrl.physPos
 	self.camPos = target - look * C("Camera", "Distance") + Vector3.new(0, C("Camera", "Height"), 0)
 	if self.camera then
@@ -46,7 +49,19 @@ function CameraRig:update(dt)
 	local C = self.cfg.get
 	local ctrl = self.ctrl
 	local target = ctrl.physPos
+	local tele = ctrl:getTelemetry()
 	self.t += dt
+
+	-- M6.5 up 参数化:墙态滚向墙法线,否则回世界 Y;nlerp 平滑(垂直墙恰 90°,永不越)。FOV 档位不变。
+	local targetUp = (tele.wallRiding and tele.wallUp) and tele.wallUp or Vector3.yAxis
+	local upAlpha = 1 - math.exp(-dt / math.max(C("WallRide", "CamRollSec"), 1e-3))
+	local up = (self.upVec or Vector3.yAxis):Lerp(targetUp, upAlpha)
+	if up.Magnitude < 1e-3 then
+		up = (targetUp + Vector3.yAxis * 0.05).Unit -- 对向翻墙兜底(左右墙急换),经由竖直过渡
+	else
+		up = up.Unit
+	end
+	self.upVec = up
 
 	-- 朝向慢半拍:朝向低通比位置更慢
 	local look = self:_bikeLook()
@@ -55,14 +70,14 @@ function CameraRig:update(dt)
 	if sl.Magnitude < 1e-3 then sl = look else sl = sl.Unit end
 	self.smoothLook = sl
 
-	-- 位置弹簧滞后(心流档拉近至 FlowDistance)
+	-- 位置弹簧滞后(心流档拉近至 FlowDistance);高度偏移沿 up(地面=世界 Y,逐位不变)
 	local dist = self.flow and C("Camera", "FlowDistance") or C("Camera", "Distance")
-	local desired = target - sl * dist + Vector3.new(0, C("Camera", "Height"), 0)
+	local desired = target - sl * dist + up * C("Camera", "Height")
 	local posAlpha = 1 - math.exp(-dt / math.max(C("Camera", "FollowLagSec"), 1e-3))
 	self.camPos = self.camPos:Lerp(desired, posAlpha)
 
 	-- 撞墙回退:从看点向相机射线,命中则拉到墙内侧(验收项:任何情况不穿墙)
-	local anchor = target + Vector3.new(0, 2, 0)
+	local anchor = target + up * 2
 	local camPos = self.camPos
 	local off = camPos - anchor
 	local dist = off.Magnitude
@@ -74,7 +89,6 @@ function CameraRig:update(dt)
 	end
 
 	-- 冲刺震动(平滑噪声,不打断跟随)
-	local tele = ctrl:getTelemetry()
 	if tele.sprinting and tele.grounded then  -- sprinting=有效冲刺(含最小点火尾段),松键不闪 FOV/震动(ADR-13)
 		local a = C("Camera", "ShakeSprint")
 		local f = C("Camera", "ShakeFreqHz")
@@ -84,14 +98,14 @@ function CameraRig:update(dt)
 			0)
 	end
 
-	-- 看向点:车前方(带前移与抬高)
-	local lookAt = target + sl * C("Camera", "LookAhead") + Vector3.new(0, C("Camera", "LookUp"), 0)
+	-- 看向点:车前方(带前移与抬高,抬高沿 up)
+	local lookAt = target + sl * C("Camera", "LookAhead") + up * C("Camera", "LookUp")
 	self.lastCamPos = camPos
 	self.lastLookAt = lookAt
 
 	if self.camera then
 		self.camera.CameraType = Enum.CameraType.Scriptable
-		self.camera.CFrame = CFrame.lookAt(camPos, lookAt)
+		self.camera.CFrame = CFrame.lookAt(camPos, lookAt, up)
 		local targetFov = self.flow and C("Camera", "FlowFOV") or (tele.sprinting and C("Camera", "FOVSprint") or C("Camera", "FOVBase"))
 		local fovAlpha = 1 - math.exp(-dt / math.max(C("Camera", "FOVLerpSec"), 1e-3))
 		self.camera.FieldOfView += (targetFov - self.camera.FieldOfView) * fovAlpha

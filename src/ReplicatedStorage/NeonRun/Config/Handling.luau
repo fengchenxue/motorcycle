@@ -79,6 +79,17 @@ return {
 		TransitionSec = 0.4,
 		SpeedRestore = 0.6,
 	},
+	WallRide = {
+		-- M6.5 贴墙段(ADR-36 授权段磁吸;§4.9)。墙=经济中性,收入键不存在(ADR-37)。
+		EnterWindowStuds = 6,   -- 触发区厚度:距可贴墙面此距离内可入墙(侧向窗口)
+		EnterMinSpeed = 60,     -- 进入速度阈值(studs/s;低速蹭墙不入墙,按普通碰撞走)
+		EnterMaxAngleDeg = 45,  -- 航向与墙切向夹角 ≤ 此值才入墙(更陡=正撞,走碰撞三档)
+		EnterTowardMinSpeed = 5, -- 朝墙横向分速 ≥ 此值才入墙(平行路过/驶下下缘不误吸)
+		BlendSec = 0.2,         -- 进入位置姿态混合时长(§4.9 拍板 0.2s)
+		HeightBandSpeed = 26,   -- A/D 高度带滑移速率(studs/s;人工验收项)
+		FallDriftPerSec = 0,    -- 下坠漂移:>0=墙上持续下滑此速率(默认 0=关;M9.5 AB/人工验收)
+		CamRollSec = 0.25,      -- 相机滚转平滑时长(roll≤90°;人工验收项)
+	},
 	Sound = {
 		EngineVolume = 0.4,
 		EnginePitchMin = 0.75,  -- 静止/低速音调

@@ -1,6 +1,8 @@
--- NeonRun / EnergyState —— 冲刺能量经济(M5 / ADR-9 / 策划案 §4.5)
--- 收入:保底=水晶(+CrystalGain,受 CrystalCap)/充能环 | 技巧=贴墙 +12/s、斩击/弹反/能量核/闸门(破 Cap)
--- 铁律:禁纯被动回能;水晶最多充到 CrystalCap,满槽最后一口必靠冒险;碰撞断心流;接触擦墙不回能(ADR-23)。
+-- NeonRun / EnergyState —— 冲刺能量经济(M5 / ADR-9 / 策划案 §4.5;两轨制 ADR-37)
+-- 收入两轨:蓝区保底=水晶(+CrystalGain,受 CrystalCap)| 红区=战斗专营:斩击/弹反/能量核/闸门(破 Cap)
+-- 铁律:禁纯被动回能;水晶最多充到 CrystalCap,满槽最后一口必靠冒险;碰撞断心流;
+--       墙=经济中性(擦墙/贴墙与一切墙体接触零入账,ADR-23/36/37)。
+-- ADR-39 松键宽限:心流中松冲刺 ≤ReleaseGraceSec 内重按=心流不断(能量与速度仍按真实按键);刹车/燃尽立即断。
 -- 职责分工:EnergyState 拥有能量数字 + 心流判定;通过 ctrl:setSprintAllowed 门控控制器。
 -- 用法:
 --   local energy = EnergyState.new(ctrl)   -- 自动订阅 hardHit/fell(碰撞坠落断心流)
@@ -25,6 +27,8 @@ function EnergyState.new(ctrl)
 	self.max = C("Max")
 	self.energy = math.clamp(C("StartEnergy"), 0, self.max)
 	self.flow = false
+	-- M6.5 松键宽限(ADR-39):graceT>0=心流中松键计时中;≤ReleaseGraceSec 重按则心流不断
+	self.graceT = 0
 	-- M8.1 最小点火(ADR-13):ignitionT>0=强制燃烧尾段(松键仍烧,直到烧满 MinIgnitionBurnSec 或能量耗尽)
 	self.ignitionT = 0
 	self._prevSprintLive = false   -- 上帧是否在燃烧(激活上升沿=一次点火承诺)
@@ -108,12 +112,9 @@ function EnergyState:step(dt)
 	local tel = self.ctrl and self.ctrl.getTelemetry and self.ctrl:getTelemetry() or {}
 	local energyAtFrameStart = self.energy  -- 心流入场用帧初能量(本帧冲刺会立即排能,不应错过满槽入口)
 
-	-- 持续技巧收入:贴墙(地面 + 壁接触 + 速度达阀)——防静止贴墙刷能
-	local speed = tel.speed or 0
-	if tel.wallContact and tel.grounded and speed >= C("WallRideMinSpeed") then
-		self:_add(C("WallRideGainPerSec") * dt, "wallride")
-	end
+	-- 贴墙收入路径已整条删除(ADR-37):墙=经济中性,墙态与任何墙体接触零入账。
 	-- 骑行涓流(AB 阀,默认 0=关):仅在地面且真实前进时给(禁静止回能 ADR-17);默认关则此块零效果
+	local speed = tel.speed or 0
 	local moveRegen = C("MoveRegenPerSec")
 	if moveRegen and moveRegen > 0 and tel.grounded and speed > 1 then
 		self:_add(moveRegen * dt, "move")
@@ -169,19 +170,35 @@ function EnergyState:step(dt)
 
 	-- 心流判定(ADR-30/31 严格兑现式):入场=帧初满槽 + 冲刺实际生效(空中亦可点燃);
 	-- 保持=冲刺持续生效且能量未燃尽(FlowExitEnergy 默认 0=烧完整管,AB 60=状态式)。
-	-- 断心流:松键/刹车(sprintLive 转 false 即熄,再进需重新满槽)/燃尽/碰撞坠落(hardHit/fell 订阅);
-	-- 空中不断(ADR-30);吃弹擦墙不断(减速=浪费燃烧时间,惩罚自动折算)。
+	-- 断心流:松键(>ReleaseGraceSec 宽限,ADR-39)或刹车(再进需重新满槽)/燃尽/碰撞坠落(hardHit/fell 订阅);
+	-- 空中不断(ADR-30);吃弹擦墙贴墙不断(减速=浪费燃烧时间,惩罚自动折算)。
 	-- 注:sprintLive 含最小点火尾段 → 尾段内心流延续到烧满 0.4s(点火承诺=进攻状态,非"松键即刻熄")。
+	-- ADR-39 松键宽限:仅覆盖"松键"这一种断因——宽限内重按=心流不断;
+	-- 能量与速度仍按真实按键状态走(松键帧不耗能、速度自然衰减 → 能量流水与无宽限版逐位一致);
+	-- 刹车=新抉择、燃尽=兑现完毕,均立即断,不走宽限。
 	local flowThresh = C("FlowThreshold")
 	local flowExit = C("FlowExitEnergy")
 	if not self.flow then
+		self.graceT = 0
 		if energyAtFrameStart >= flowThresh and sprintLive then
 			self.flow = true
 			self:_fire("flowStart", {})
 		end
 	else
-		if (not sprintLive) or self.energy <= 0 or self.energy < flowExit then
-			self:_breakFlow("drop")
+		if self.energy <= 0 or self.energy < flowExit then
+			self.graceT = 0
+			self:_breakFlow("drop")          -- 燃尽:立即断
+		elseif braking then
+			self.graceT = 0
+			self:_breakFlow("drop")          -- 刹车:立即断(ADR-39 明确不宽限)
+		elseif not sprintLive then
+			self.graceT += dt                -- 松键:宽限计时;窗口内重按即续
+			if self.graceT > C("ReleaseGraceSec") then
+				self.graceT = 0
+				self:_breakFlow("drop")
+			end
+		else
+			self.graceT = 0                  -- 按住燃烧中:宽限清零
 		end
 	end
 
@@ -194,8 +211,9 @@ end
 function EnergyState:reset()
 	self:_breakFlow("restart")
 	self.energy = math.clamp(self.cfg.get("StartEnergy"), 0, self.max)
-	-- 清空最小点火承诺与边沿状态(R 全重置铁律)
+	-- 清空最小点火承诺、松键宽限与边沿状态(R 全重置铁律)
 	self.ignitionT = 0
+	self.graceT = 0
 	self._prevSprintLive = false
 	self._prevIntent = false
 	if self.ctrl and self.ctrl.setForcedSprint then self.ctrl:setForcedSprint(false) end
