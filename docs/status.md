@@ -6,12 +6,12 @@
 
 ## 快照(覆盖式)
 
-- **更新:** 2026-07-14,**M6.5 贴墙段代码落地**(纯代码会话,Studio 未连,**验收未跑**):ADR-36 墙态=新模块 `WallRideField`(WallRideSurface Tag 注册+触发区查询;直墙约定 Size=(厚,高,长),±X 大面=可贴)+BikeController 墙态分支(进入 0.2s 位置姿态混合/磁吸 down=−墙法线/A/D=高度带/三种退出;**地面路径零改动**——转向与速度渐变原样抽取 `_steerRamp`/`_speedStep` 两态共用)+CameraRig up 参数化(roll≤90°,FOV 不变);ADR-37 贴墙收入整条删(EnergyState wallride 路径+`WallRideGainPerSec`/`WallRideMinSpeed` 键);ADR-39 松键宽限落地(`Energy_ReleaseGraceSec=0.12`,宽限内重按心流不断、能量/速度按真实按键,刹车/燃尽立即断);Handling 新增 `WallRide_*` 8 键。新工具 `seed_m6_5_config`/`accept_m6_5`(十组断言,自建 WallRig@(-1800,200,-600));selfcheck +4 核对项;试驾 HUD 加"贴墙"态。同日早前:测试赛道会话(**ADR-40**:测试赛道=**AI 全脚本生成**拍板,`tools/build_gauntlet.lua` 落地待 Studio 首跑,含 WallRideSurface 贴墙几何——**M6.5 代码已落,同步后即为磁吸活墙段**);拍板清仓会话(宪法升 **v1.1**:ADR-38 射手只打前方/ADR-39 输入分层+松键宽限/§7 节拍模板初版/名称沿用 NEON RUN);文档重构 v1.0(c26f2f8,重构前全文存档 d19ef25);M8.1 代码落地待验收;ADR-36/37(贴墙段 B+能量两轨)。
-- **重心:** V1 可玩 demo。队列:**Studio 线=①M8.1 验收回填 ②M6.5 验收(accept_m6_5+人工三项,必停)③gauntlet 首跑**;**代码线下一棒=M4.1(碰撞确定性+定步长)** → M8.5 P2~P4 → M9a/b → M9.5 外部试玩 → M10 = demo 完成;M11/12/13 后置。
+- **更新:** 2026-07-15,**试炼道生成完毕(ADR-40 Studio 实跑)+双 seed 补种**:`seed_m8_1_config`(+5/−2,Energy 18 键)与 `seed_m6_5_config`(Energy+1/−2=17 键,Handling+8=84 键)已种;`build_gauntlet.lua` 首跑 S 弯 ±100 摆幅 lint 失败(worstR=111.7<阈值 167.1),CP04/05 收至 **±60**(x=760/640,实测 worstR=195.5 留 17% 余量;±70 仅 167.3 压线不取,TB.lint 空跑试探法)重跑通过,**工具已回写 repo**。静态核对全过:两坡薄边朝来车(射线实证,RAMP_FLIP 不需)/贴墙件 2 规格 Tag 合约定(x=679/721,Size=(2,26,长),lookZ=−1)/磁吸探针对**真路中心线**横距 6.0/10.0=设计值(入弯预摆见坑18)/走廊 x∈[640,760] 无外来碰撞件/Gauntlet 内 Tag=晶11·核2·射手2·闸1·墙2;Road=285 板+边条×570(children=855),Rideable 总 288=285 板+2 坡+1 CombatRig 地板;旧 38 件 ControlPoints→Backup.ControlPoints_bak_1784086038。selfcheck 新增 `trackRoadSlabs` 口径。**Play 人工试骑未跑**(磁吸动态/闸门可穿/贴墙/手感=人工项)。此前:M6.5 贴墙段代码落地**验收未跑**(ADR-36/37/39,WallRideField+墙态分支+松键宽限,详见 git 2026-07-14);M8.1 代码落地待验收;宪法 v1.1(ADR-38/39/40 已并)。
+- **重心:** V1 可玩 demo。队列:**Studio 线=①M8.1 验收回填(seed 已种)②M6.5 验收(accept_m6_5+人工三项,必停;seed 已种)③gauntlet Play 试骑(生成✅,试玩指引见 2026-07-15 交付)**;**代码线下一棒=M4.1(碰撞确定性+定步长)** → M8.5 P2~P4 → M9a/b → M9.5 外部试玩 → M10 = demo 完成;M11/12/13 后置。
 - **里程碑:** M0~M7 ✅(基准表);M2.1 待核实;M8 🔶 仅客户端(归 M12);**M8.1 代码✅待 Studio 验收**;**M6.5 代码✅待 Studio 验收+人工验收三项(必停)**;M8.5 P1 待 Studio 验证。
 - **待拍板(人类):** ① 手感参数统一调(`Combat_*`/心流 AB 旋钮属性面板实时生效);④ M6.5 手感三项(**代码已落,试玩后拍板**):进入宽容度(`WallRide_EnterWindowStuds/EnterMaxAngleDeg/EnterTowardMinSpeed/EnterMinSpeed`)/高度带速率与"下坠漂移"开关(`WallRide_HeightBandSpeed`/`FallDriftPerSec`=0 关)/相机滚转速度(`WallRide_CamRollSec`);⑤ **最小点火×心流尾段**(现默认=延续,备选=尾段豁免;M9.5 AB,旋钮 `MinIgnitionBurnSec`)。**已拍板归档(2026-07-14):** 贴墙=B(ADR-36)/能量两轨(ADR-37)/射手只打前方(ADR-38)/输入分层+松键宽限(ADR-39)/节拍模板初版(§7)/名称沿用 NEON RUN/测试赛道 AI 全生成(ADR-40)。
 - **已知问题:** ① 石头碰撞忽"弹飞"忽减速(涌现分类)与 ② 撞墙偶发卡出墙外——均归 M4.1;③ TrackShooter1 落位偏高(y=11,人类拖正即可,Tag 已带);④ 剑光/弹反/点火音效缺 assetId(事件钩子 swing/hit/parry/whiff/telegraph/fired/playerHit 已留;BikeAudio 点火 whoosh 已读有效 sprinting);⑥ `Combat_DebugHitbox=true` 临时判定盒可视化(青=平时/绿=盒内有目标/白=命中帧),正式版前移除;⑧ AttackSystem defaultKill 斩后仅隐形、不切 CanCollide → 闸门 Destructible 约定摆 CanCollide=false(无物理阻挡,gauntlet 已按此;"不斩即撞"版=kill/revive 切碰撞,归 M8.5 P3);⑨ **M6.5 墙态内不做障碍扫掠与坠落判定**(墙段按 soft lint 干净授权,墙上障碍/曲墙随 TrackBuilder P3);⑩ 下缘回地有 ≤悬浮高(1.6)的一帧上吸(落地贴地逻辑固有,人工验收留意)。**已解待复核(accept_m8_1):** ⑤ READY 脉冲+点火白闪已做,空箱=闪红+抖动;⑦ graze 回能路径已整条删除(`_onGraze` 移除/Config 删 NearMissGain/Window;Studio 残留属性由 seed 清)。
-- **⚠️ 接手第一任务:** 带 Studio → ① `tools/seed_m8_1_config.lua`(Energy +5 属性/−2 旧属性)② `tools/accept_m8_1.lua` 八项,**回填基准表** ③ `tools/seed_m6_5_config.lua`(Energy +1/−2,Handling +8)→ `tools/accept_m6_5.lua` 十组(自建 WallRig;含直线 400 帧/转向锚点/坡顶起飞回归),**回填基准表** ④ `tools/selfcheck.lua`(energyM81Missing/energyStrayGraze/energyM65Grace/energyStrayWallRide/handlingM65WallRide 全 OK)⑤ Play 试骑:M8.1 表现层 + **M6.5 人工三项(必停,待拍板④,试玩指引见交付)** ⑥ TrackBuilder P1 验证(下方清单)⑥b P1 过后跑 `tools/build_gauntlet.lua` 建全功能试炼道(核对点=清单第 7 条;**贴墙件现为活墙段**)⑦ `tools/jumptable.lua` 出跳距表。纯代码 → 开工 **M4.1**(design §E4)。
+- **⚠️ 接手第一任务:** 带 Studio(两 seed 已种,selfcheck 配置项全 OK,2026-07-15)→ ① `tools/accept_m8_1.lua` 八项,**回填基准表** ② `tools/accept_m6_5.lua` 十组(自建 WallRig;含直线 400 帧/转向锚点/坡顶起飞回归),**回填基准表** ③ Play 试骑:M8.1 表现层 + **M6.5 人工三项(必停,待拍板④,试玩指引见交付)** + **gauntlet 全功能试骑**(试玩指引见 2026-07-15 交付;动态核对=磁吸边界/闸门斩后可穿/贴墙段/跳距对条纹)④ `tools/jumptable.lua` 出跳距表校准 Z4 条纹。纯代码 → 开工 **M4.1**(design §E4)。
 
 ## TrackBuilder P1 验证清单(原 handoff 并入)
 
@@ -21,20 +21,20 @@
 4. Play 试骑:发车→水晶 +18/斩核 +25→完赛。开放式=`Workspace.NeonRun.Closed=false` 统一驱动(运行时/TB/RaceTimer 三方同源;终点=样条末端 t≥0.997,强制单圈)。
 5. 手摆速查(打 Tag 即生效,R 全复活):`EnergyCrystal` 骑过 +18(磁吸 7)/ `EnergyCore` 斩 +25 / `Destructible` 斩开(闸门 +15)/ `ShooterEnemy` 弹反 +25·斩本体 +30·骑穿免费(需重注册,稍麻烦)。
 6. 未做:P2(lint 全套)/P3(自动摆放+墙带+断口段)/P4(分段门+锚点烘焙);微谷截面留 P2/P3。
-7. **试炼道(ADR-40,P1 过后):** Edit 跑 `tools/build_gauntlet.lua`(幂等;非本脚本生成的旧 ControlPoints 自动备份进 ServerStorage.NeonRun.Backup)。核对:① 楔形坡薄边朝来车(反了改脚本头 `RAMP_FLIP=true` 重跑)② Z1 磁吸边界探针=+6 那颗骑中线该吸、+10 不该吸 ③ 闸门斩后隐形可穿(CanCollide=false 约定,已知问题⑧)④ 贴墙件 2(**M6.5 已落地:Rojo 同步后=磁吸活墙段**,骑近侧向切入即上墙;若想测普通墙碰撞,临时摘 WallRideSurface Tag)⑤ selfcheck 口径变化:rideableTags=路面段数+2(两坡)⑥ 弯道 lint ❌ 则按报告 t 值挪 CP04/CP05 外扩重跑。
+7. **试炼道(ADR-40)✅已生成(2026-07-15,注:1~4 的 example_testtrack 未单独跑,TB.build/lint/铺路已由 gauntlet 首跑实证):** 静态核对完成:① 坡向✅(射线实证薄边朝来车)② 探针摆位✅(对真中心线 6.0/10.0;**动态吸取待 Play**)③ 闸门斩后可穿(待 Play)④ 贴墙件✅规格合约定(活墙段,骑近侧向切入即上墙;测普通墙碰撞=临时摘 WallRideSurface Tag)⑤ selfcheck 实测口径:trackRoadSlabs=285(Road children=板×3=855),Rideable=288(285 板+2 坡+1 CombatRig 地板)⑥ lint✅(CP04/05 摆幅 ±60,worstR=195.5)。
 
 ## Studio 侧状态(覆盖式)
 
-(截至 2026-07-14;M8.1 为纯代码会话,Studio 侧尚未同步验证)
+(截至 2026-07-15;seed×2 已种、试炼道已生成;M8.1/M6.5 验收仍未跑)
 
-- **⚠️ M8.1 待补种:** 跑 `tools/seed_m8_1_config.lua` → Config.Energy **+5 属性**(MinIgnitionBurnSec=0.4/IgnitionCost=0/CrystalMagnetRadius=7/MoveRegenPerSec=0/GateGain=15)、**−2 旧属性**(NearMissGain/Window),Energy 属性 15→18;Handling 无新增。分段门拱门=运行时客户端建(`Workspace.NeonRunSegmentGates`,非持久,CanQuery=false)。
-- **⚠️ M6.5 待补种:** 跑 `tools/seed_m6_5_config.lua` → Config.Energy **+1**(ReleaseGraceSec=0.12)**−2**(WallRideGainPerSec/WallRideMinSpeed,墙=经济中性),Handling **+8**(WallRide_*)。测试台 **WallRig**=accept_m6_5 首跑自建(`Workspace.NeonRunWallRig`@(-1800,200,-600),地板 260×800+直墙 700×30 带 WallRideSurface Tag,常驻可复用)。**墙件摆放约定:直墙 Part,±X 大面=可贴面(两侧皆可),Z 轴=切向,Size=(厚,高,长);打 WallRideSurface Tag 即生效**(build_gauntlet Z5 已按此)。
-- **⚠️ 试炼道待生成:** `tools/build_gauntlet.lua`(P1 验证过后 Edit 跑)→ 13 CP(x≈700/y220/z 100→−3300)+ `Workspace.NeonRun.Gauntlet`(晶 11(含边界探针 2)/核 2/射手 2/闸门 1/贴墙面 2/坡 2/落点条纹 6/路牌 6);跑后旧走廊 Tag 件(TrackShooter 等)与试炼道并存注册,selfcheck 计数会变。
-- Modules:repo=**14 件**(M6.5 新增 WallRideField;含 ShooterField、TrackBuilder);Studio 以 selfcheck 实测为准;M6.5 改动=新增 1 件+既有 4 件原地改(BikeController/EnergyState/CameraRig/试驾脚本),Rojo sync 即生效;Handling Attributes=75→83(WallRide_* 8 键待 seed 或首跑自补)。
+- **✅ M8.1 已补种(2026-07-15):** Energy 18 键(+MinIgnitionBurnSec=0.4/IgnitionCost=0/CrystalMagnetRadius=7/MoveRegenPerSec=0/GateGain=15,−NearMissGain/Window)。分段门拱门=运行时客户端建(`Workspace.NeonRunSegmentGates`,非持久,CanQuery=false)。
+- **✅ M6.5 已补种(2026-07-15):** Energy 17 键(+ReleaseGraceSec=0.12,−WallRideGainPerSec/WallRideMinSpeed),Handling 84 键(+WallRide_* 8 键)。测试台 **WallRig 尚未建**=accept_m6_5 首跑自建(`Workspace.NeonRunWallRig`@(-1800,200,-600),地板 260×800+直墙 700×30 带 WallRideSurface Tag,常驻可复用)。**墙件摆放约定:直墙 Part,±X 大面=可贴面(两侧皆可),Z 轴=切向,Size=(厚,高,长);打 WallRideSurface Tag 即生效**(gauntlet Z5 已按此)。
+- **✅ 试炼道已生成(2026-07-15,lint worstR=195.5):** ControlPoints=CP01~13(NeonRunGenerated,x≈700/y220/z 100→−3300,S 弯摆幅 ±60)+ `Workspace.NeonRun.Gauntlet` 32 件(晶 11 含边界探针 2/核 2/射手 2/闸门 1/贴墙面 2/坡 2/落点条纹 6/路牌 6)+ Track.Road 855 children(285 板+边条 570)。旧 38 件 ControlPoints→`Backup.ControlPoints_bak_1784086038`。旧走廊 Tag 件与试炼道并存注册,selfcheck 计数勿混。**Play 试骑未跑。**
+- Modules:repo=**16 件**=Studio 实测一致(2026-07-15 selfcheck 核对;含 WallRideField/TrackBuilder/ShooterField);Rojo sync 即生效。
 - Workspace.NeonRun.**CombatRig**(@(-1200,200,-200) 直道 40×2×800,地板已打 Rideable):EnergyCore ×4/CombatShooterA·B/发车标线;主赛道 TrackShooter1@(-91,11,-440)、TrackShooter2@(-134,5,-515)、旧 M7 靶已核化 EnergyCore_1~3。
-- Tag 计数:EnergyCore 7/ShooterEnemy 4/Destructible 1/Rideable 1/SlashEnemy 0/ParryEnemy 0。
+- Tag 计数(2026-07-15,含 Gauntlet):EnergyCrystal 27(Gauntlet 11+旧 16)/EnergyCore 11(2+9)/ShooterEnemy 7(2+5)/Destructible 2(1+1)/WallRideSurface 2(全 Gauntlet)/Rideable 288(285 板+2 坡+1 CombatRig)/SlashEnemy 0/ParryEnemy 0。
 - **Rojo serve 活跃**(repo 改动即时同步;`.Source` 推送只作断连兜底,推前先查)。
-- Workspace.NeonRun:ControlPoints CP01~09(Index 定序)/SplineViz ~230 件/SpikeSite 7 台(y≈200~370)。
+- Workspace.NeonRun:SplineViz 随 TB 重建/SpikeSite 7 台(y≈200~370,走廊扫描确认不侵入试炼道 x∈[640,760])。
 - Workspace.Motorcycle:PrimaryPart=BikeRoot(2×2.5×7),66 件焊接,Root 锚定;备份 ServerStorage.NeonRun.Backup。
 - 模板脚本与 RaceGui 均 Disabled(勿删);测试走廊沙丘最高 y=138。
 
@@ -81,3 +81,4 @@
 15. execute_luau 的 require 缓存跨调用存活:`.Source` 更新后须 `require(实例:Clone())` 强制重编译;Rojo 同步同理。
 16. 宪法漂移会咬人:拍板只记 ADR 不修宪,权威顺序会让过期宪法获胜。规则:**拍板即修宪**;来不及靠元规则(ADR 未并宪前以 ADR 为准)。
 17. 墙态退出帧的高度带按键有 ramp-out 残留(InputRampOutSec),空中转向会把弹道拐向墙、可能落上薄墙顶面:验收剧本出墙即回正 steer(accept_m6_5 drive());真实玩家松键同样有 0.2s 残留,人工验收留意上缘弹出手感。
+18. Catmull-Rom 弯道控制点的偏移会经切线传导进相邻"直线"段,产生反向预摆(gauntlet 实测:CP04 x+60 → CP02~CP03 段中心线反向偏 3.1 studs@z≈-360)。两个推论:① 摆件必须用样条局部系(NearestPoint+RightVector,gauntlet roadTopPos 已如此)② **核对"对中线距离"也必须以样条为基准**——拿世界坐标直线当中线会把正确摆位误判成错位(本次差点误改探针)。lint 快速试探法:改 Workspace 控制点 Part 位置后 `TB.lint(TB.buildSpline(false))` 空跑,不必全量铺路。

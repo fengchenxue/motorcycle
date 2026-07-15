@@ -93,8 +93,17 @@ local wsNr = workspace:FindFirstChild("NeonRun")
 out.controlPoints = wsNr and wsNr:FindFirstChild("ControlPoints") and #wsNr.ControlPoints:GetChildren() or 0
 
 -- 赛道烘焙(M8.5):Track 文件夹段数 + Rideable Tag 计数(ADR-28 白名单;M4.1 探针切换后即依赖此)
+-- 口径:Road 文件夹 children=板+左右边条(板×3);Rideable=板数+坡等 Tag 件(CombatRig 地板占 1)
 local track = wsNr and wsNr:FindFirstChild("Track")
-out.trackRoadSegs = track and track:FindFirstChild("Road") and #track.Road:GetChildren() or 0
+local roadFolder = track and track:FindFirstChild("Road")
+out.trackRoadSegs = roadFolder and #roadFolder:GetChildren() or 0
+local slabs = 0
+if roadFolder then
+	for _, c in ipairs(roadFolder:GetChildren()) do
+		if c.Name:sub(1, 5) == "Road_" then slabs += 1 end
+	end
+end
+out.trackRoadSlabs = slabs
 out.rideableTags = #game:GetService("CollectionService"):GetTagged("Rideable")
 
 -- 备份与模板隔离

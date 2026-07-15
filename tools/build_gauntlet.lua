@@ -50,8 +50,8 @@ local path = {
 	Vector3.new(700, Y, 100),    -- CP01 发车(SPAWN=CP01→CP02)
 	Vector3.new(700, Y, -200),
 	Vector3.new(700, Y, -450),   -- Z1 直线尾
-	Vector3.new(800, Y, -850),   -- Z2 右摆顶点
-	Vector3.new(600, Y, -1350),  -- Z2 左摆顶点
+	Vector3.new(760, Y, -850),   -- Z2 右摆顶点(±60;±100 lint 最小半径 111.7<167.1,首跑已改)
+	Vector3.new(640, Y, -1350),  -- Z2 左摆顶点(实测 worstR=195.5,留 17% 余量)
 	Vector3.new(700, Y, -1700),  -- Z2 出弯;此后至终点全直(战斗/跳跃/贴墙区要求直线段)
 	Vector3.new(700, Y, -1950),
 	Vector3.new(700, Y, -2200),
@@ -138,7 +138,7 @@ crystal(-400, 10)  -- 骑中线 3D 距 ≈10.2 > 7:不该吸到(留着不吸=边
 
 -- Z2 S 弯:水晶贴行车线(直接取样条点,§7 磁吸=保底)
 do
-	for _, anchor in ipairs({ {800, -850}, {700, -1100}, {600, -1350} }) do
+	for _, anchor in ipairs({ {760, -850}, {700, -1100}, {640, -1350} }) do
 		local t = select(1, sp:NearestPoint(Vector3.new(anchor[1], Y, anchor[2])))
 		mk{ name = "Crystal", tag = "EnergyCrystal", size = Vector3.new(2, 2, 2),
 			shape = Enum.PartType.Ball, color = Color3.fromRGB(0, 200, 255),
