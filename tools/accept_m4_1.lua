@@ -130,7 +130,8 @@ do
 				ctrl:setSteer(0); ctrl:setSprint(sprint); ctrl:setBrake(false)
 				ctrl:step(DT)
 				local tel = ctrl:getTelemetry()
-				if ctrl.physPos.X > WALL_FACE_X + 0.01 then penet += 1 end
+				-- 穿透判据限墙体 z 范围:擦墙泄速滑出墙尾(z<-850)后 X 越过延长面≠穿透
+				if ctrl.physPos.X > WALL_FACE_X + 0.01 and ctrl.physPos.Z >= -850 and ctrl.physPos.Z <= -250 then penet += 1 end
 				if ctrl.vy > 0.001 then vyBad += 1 end
 				if tel.wallContact and not sawContact then
 					sawContact = true
@@ -186,37 +187,50 @@ end
 
 -- ③ 障碍防穿(垂直路径):重摔=硬撞转场;掠过顶面=钳位悬滑
 do
-	-- 重摔:高处自由落体砸 Rock1 顶(横速 0,入射 ~90°,总速>20)
+	-- 重摔:高处自由落体砸 Rock1 顶(入射 ~90°,总速>20)。Speed_Base 临时置 0=真·纯垂直:
+	-- teleport 后 curSpeed 自动回涨(RampUp)带水平漂移,30 帧漂 ~33 studs 会飞过石头砸在 Floor 上
+	local baseSpeed0 = hInst:GetAttribute("Speed_Base")
+	hInst:SetAttribute("Speed_Base", 0)
 	local drop = Vector3.new(-2400, FLOOR_TOP + 30, -700)
 	ctrl:teleport(CFrame.lookAt(drop, drop + Vector3.new(0, 0, -1)))
 	local resets0 = ctrl.resetCount
 	local tunneled = false
-	for f = 1, 120 do
+	for f = 1, 150 do
 		ctrl:setSteer(0); ctrl:setSprint(false); ctrl:setBrake(false)
 		ctrl:step(DT)
 		if insideAnyRock(ctrl.physPos) then tunneled = true end
 		if ctrl.resetCount > resets0 and not ctrl:isRespawning() then break end
 	end
+	hInst:SetAttribute("Speed_Base", baseSpeed0)
 	ok("③ 重摔上石头=硬撞转场(resetCount+1)", ctrl.resetCount == resets0 + 1, ctrl.resetCount - resets0)
 	ok("③ 重摔不穿石(零入石帧)", not tunneled, tunneled)
-	-- 掠过:高横速低落差蹭石顶(入射 <55°)→ 钳位悬滑滑出,不落地在石头上、不撞、不穿
-	local skim = Vector3.new(-2400, FLOOR_TOP + 7, -680)   -- Rock1 顶 ≈ y+5.5;从 +7 掠入
+	-- 掠顶悬滑:平顶障碍。旋转石头顶面自带 ~20° 斜度,贴面掠过入射角轻易 ≥55°=正确判硬撞,
+	-- 悬滑在斜石上不可稳定复现;悬滑窗口=障碍顶+0.96~+1.6 仅 0.64 studs,故出发点直接悬在窗口内。
+	-- =已知问题⑪(轻掠非可骑面顶=悬浮 1.6 滑过)的确定性复现
+	local slab = Instance.new("Part")
+	slab.Name = "M41SkimSlab"; slab.Anchored = true; slab.CanCollide = false
+	slab.Size = Vector3.new(20, 2, 16); slab.Position = Vector3.new(-2360, FLOOR_TOP + 4, -700) -- 顶 205,z∈[-708,-692]
+	slab.Parent = workspace
+	local skim = Vector3.new(-2360, FLOOR_TOP + 6.5, -692.5)
 	ctrl:teleport(CFrame.lookAt(skim, skim + Vector3.new(0, 0, -1)))
 	ctrl.curSpeed = 135
 	resets0 = ctrl.resetCount
-	local skimTunnel, groundedOnRock, passed = false, false, false
+	local hoverFrames, passed, groundedOnSlab, slabTunnel = 0, false, false, false
 	for f = 1, 180 do
 		ctrl:setSteer(0); ctrl:setSprint(true); ctrl:setBrake(false)
 		ctrl:step(DT)
-		if insideAnyRock(ctrl.physPos) then skimTunnel = true end
 		local tel = ctrl:getTelemetry()
-		if tel.grounded and insideAnyRock(ctrl.physPos - Vector3.new(0, 1.7, 0)) then groundedOnRock = true end
-		if ctrl.physPos.Z < -712 then passed = true break end   -- 已越过石簇
+		local overSlab = ctrl.physPos.Z < -693 and ctrl.physPos.Z > -707
+		if not tel.grounded and ctrl.vy == 0 and overSlab then hoverFrames += 1 end
+		if tel.grounded and overSlab and ctrl.physPos.Y < FLOOR_TOP + 7 then groundedOnSlab = true end
+		if overSlab and ctrl.physPos.Y < FLOOR_TOP + 4.9 then slabTunnel = true end
+		if ctrl.physPos.Z < -712 then passed = true break end
 	end
-	ok("③ 掠石顶:滑出石簇(未撞死未卡死)", passed and ctrl.resetCount == resets0,
-		string.format("passed=%s resets=%d", tostring(passed), ctrl.resetCount - resets0))
-	ok("③ 掠石顶:不穿透不落地于石", (not skimTunnel) and (not groundedOnRock),
-		string.format("tunnel=%s groundedOnRock=%s", tostring(skimTunnel), tostring(groundedOnRock)))
+	slab:Destroy()
+	ok("③ 掠平顶障碍:钳位悬滑滑出(hover>0 未撞未卡)", passed and ctrl.resetCount == resets0 and hoverFrames > 0,
+		string.format("passed=%s resets=%d hover=%d", tostring(passed), ctrl.resetCount - resets0, hoverFrames))
+	ok("③ 掠顶:不穿透不落地于障碍(悬浮 1.6 滑过,已知问题⑪)", (not slabTunnel) and (not groundedOnSlab),
+		string.format("tunnel=%s groundedOnSlab=%s", tostring(slabTunnel), tostring(groundedOnSlab)))
 end
 
 -- ④ FixedStep 变帧率一致性(ADR-33):23/47/61/144Hz vs 纯 1/60,按步逐位一致
@@ -280,7 +294,13 @@ do
 	-- 射手前方剔除:样条中段放一个 ShooterEnemy,重烘焙应减锚
 	local shooter = Instance.new("Part")
 	shooter.Name = "M41TestShooter"; shooter.Anchored = true; shooter.CanCollide = false
-	shooter.Size = Vector3.new(2, 4, 2); shooter.Position = sp:GetPoint(0.5) + Vector3.new(0, 3, 0)
+	-- 路边位:0.125 号锚前方 30 studs、侧移 5——正中车道会先被 lint③ 障碍射线判 blocked;
+	-- 恰站锚点上则 to 纯竖直 Dot(fwd)=0 不算"前方"(锚距 88 > 净空 60,原 t=0.5 摆位谁也看不见)
+	local tAhead = 0.125 + 30 / sp.Length
+	local tanA = sp:GetTangent(tAhead)
+	local rightA = Vector3.new(-tanA.Z, 0, tanA.X).Unit
+	shooter.Size = Vector3.new(2, 4, 2)
+	shooter.Position = sp:GetPoint(tAhead) + rightA * 5 + Vector3.new(0, 3, 0)
 	shooter.Parent = workspace
 	CS:AddTag(shooter, "ShooterEnemy")
 	local res2 = RespawnAnchors.bake(sp, opts)
@@ -348,7 +368,7 @@ do
 	if sceneHit then
 		local tagged = {}
 		for z = 130, -560, -20 do
-			local hit = workspace:Raycast(Vector3.new(1500, 260, z), Vector3.new(0, -120, 0))
+			local hit = workspace:Raycast(Vector3.new(1500, 260, z), Vector3.new(0, -320, 0))
 			if hit and hit.Instance ~= workspace.Terrain and not CS:HasTag(hit.Instance, "Rideable") then
 				CS:AddTag(hit.Instance, "Rideable")
 				tagged[hit.Instance.Name] = true
@@ -357,6 +377,9 @@ do
 		local names = {}
 		for nm in pairs(tagged) do names[#names + 1] = nm end
 		if #names > 0 then log[#log + 1] = "  ○ ⑥ 坡顶路径补 Rideable Tag(坑12):" .. table.concat(names, ",") end
+		-- 坑 26:CollectionService 信号同线程内 deferred,运行中补的 Tag 必须显式重建白名单过滤表,
+		-- 否则探针视新 Tag 件不存在(全程滞空假失败);预检射线深探 320=覆盖坡底盆地 Rig3_Basin(y≈-19)
+		ctrl:_rebuildGroundFilter()
 		ctrl:teleport(CFrame.lookAt(Vector3.new(1500, 202.6, 130), Vector3.new(1500, 202.6, 30)))
 		local flights, airborne, maxFlight, cur, prevG, landed = 0, 0, 0, 0, true, false
 		for f = 1, 1200 do

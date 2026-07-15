@@ -251,7 +251,7 @@ do
 		-- M4.1 白名单迁移预检(坑 12):沿坡顶路径为未打 Tag 的地面件补 Rideable(Terrain 天然白名单)
 		local tagged = {}
 		for z = 130, -560, -20 do
-			local hit = workspace:Raycast(Vector3.new(1500, 260, z), Vector3.new(0, -120, 0))
+			local hit = workspace:Raycast(Vector3.new(1500, 260, z), Vector3.new(0, -320, 0))
 			if hit and hit.Instance ~= workspace.Terrain and not CS:HasTag(hit.Instance, "Rideable") then
 				CS:AddTag(hit.Instance, "Rideable")
 				tagged[hit.Instance.Name] = true
@@ -260,6 +260,9 @@ do
 		local names = {}
 		for nm in pairs(tagged) do names[#names + 1] = nm end
 		if #names > 0 then log[#log + 1] = "  ○ ⑤ 坡顶路径补 Rideable Tag:" .. table.concat(names, ",") end
+		-- 坑 26:CollectionService 信号同线程内 deferred,运行中补的 Tag 必须显式重建白名单过滤表,
+		-- 否则探针视新 Tag 件不存在(全程滞空假失败);预检射线深探 320=覆盖坡底盆地 Rig3_Basin(y≈-19)
+		ctrl:_rebuildGroundFilter()
 		reset(CFrame.lookAt(Vector3.new(1500, 202.6, 130), Vector3.new(1500, 202.6, 30)))
 		local flights, airborne, maxFlight, cur, prevG, landed = 0, 0, 0, 0, true, false
 		for f = 1, 1200 do
