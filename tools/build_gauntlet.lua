@@ -50,8 +50,8 @@ local path = {
 	Vector3.new(700, Y, 100),    -- CP01 发车(SPAWN=CP01→CP02)
 	Vector3.new(700, Y, -200),
 	Vector3.new(700, Y, -450),   -- Z1 直线尾
-	Vector3.new(800, Y, -850),   -- Z2 右摆顶点
-	Vector3.new(600, Y, -1350),  -- Z2 左摆顶点
+	Vector3.new(760, Y, -850),   -- Z2 右摆顶点(±60;±100 lint 最小半径 111.7<167.1,首跑已改)
+	Vector3.new(640, Y, -1350),  -- Z2 左摆顶点(实测 worstR=195.5,留 17% 余量)
 	Vector3.new(700, Y, -1700),  -- Z2 出弯;此后至终点全直(战斗/跳跃/贴墙区要求直线段)
 	Vector3.new(700, Y, -1950),
 	Vector3.new(700, Y, -2200),
@@ -138,7 +138,7 @@ crystal(-400, 10)  -- 骑中线 3D 距 ≈10.2 > 7:不该吸到(留着不吸=边
 
 -- Z2 S 弯:水晶贴行车线(直接取样条点,§7 磁吸=保底)
 do
-	for _, anchor in ipairs({ {800, -850}, {700, -1100}, {600, -1350} }) do
+	for _, anchor in ipairs({ {760, -850}, {700, -1100}, {640, -1350} }) do
 		local t = select(1, sp:NearestPoint(Vector3.new(anchor[1], Y, anchor[2])))
 		mk{ name = "Crystal", tag = "EnergyCrystal", size = Vector3.new(2, 2, 2),
 			shape = Enum.PartType.Ball, color = Color3.fromRGB(0, 200, 255),
@@ -198,8 +198,46 @@ end
 wall(-2720, 200, "L")  -- 长墙:地面进入/段尾退出
 wall(-2800, 120, "R")  -- 短墙,与长墙重叠 80 studs:双侧走廊 + 换边测试
 
--- Z6 冲线直线:水晶收尾(终点 t≥0.997 由 RaceTimer 自动判)
+-- Z6 冲线直线:水晶收尾 + 终点门/终点线
 crystal(-3000, 0); crystal(-3100, 0)
+-- 终点标记(补漏):RaceTimer 三个分段门只到 t=0.75(≈Z4),终点前约 800 studs 无标记→误判"已完赛"。
+-- 完赛判定仍是样条末端 t≥0.997(RaceTimer 自动,纯参数化);此门放 t=0.99=判定点略前,冲过门即结算。
+do
+	local T_FIN = 0.99
+	local cf = sp:GetCFrame(T_FIN)
+	local base = cf.Position + Vector3.new(0, -ROAD_DROP, 0) -- 路面顶(样条中线−下沉量)
+	local right, up, look = cf.RightVector, Vector3.new(0, 1, 0), cf.LookVector
+	local HALF_W, HEIGHT, BAR = 22, 17, 1.4
+	local white = Color3.fromRGB(240, 245, 255)
+	-- 拱门:两白柱 + 横梁(白霓虹,区别于青色分段门;纯视觉,mk 默认 CanQuery=false)
+	mk{ name = "FinishPost_L", size = Vector3.new(BAR, HEIGHT, BAR), color = white,
+		cf = CFrame.new(base + right * HALF_W + up * (HEIGHT / 2)) }
+	mk{ name = "FinishPost_R", size = Vector3.new(BAR, HEIGHT, BAR), color = white,
+		cf = CFrame.new(base - right * HALF_W + up * (HEIGHT / 2)) }
+	mk{ name = "FinishBeam", size = Vector3.new(HALF_W * 2 + BAR, BAR, BAR), color = white,
+		cf = CFrame.new(base + up * HEIGHT) }
+	-- FINISH 牌:挂门中央,牌面正对来车(复用路牌 lookAt 模式)
+	local signPos = base + up * (HEIGHT - 3)
+	local board = mk{ name = "FinishSign", size = Vector3.new(20, 5, 0.5),
+		color = Color3.fromRGB(10, 14, 22), material = Enum.Material.SmoothPlastic,
+		cf = CFrame.lookAt(signPos, signPos - look) }
+	local gui = Instance.new("SurfaceGui")
+	gui.Face = Enum.NormalId.Front
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 30
+	gui.Parent = board
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1, 0, 1, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+	lbl.TextScaled = true
+	lbl.Font = Enum.Font.GothamBold
+	lbl.Text = "🏁 FINISH 🏁"
+	lbl.Parent = gui
+	-- 地面终点线:横跨路面白条(长轴=RightVector,厚度沿前进向)
+	mk{ name = "FinishStripe", size = Vector3.new(HALF_W * 2, 0.2, 2.5), color = white,
+		material = Enum.Material.Neon, cf = CFrame.lookAt(base + up * 0.12, base + up * 0.12 + look) }
+end
 
 -- ── 4. 分区路牌(路右侧,SurfaceGui 文字;纯视觉)────────────────────────────
 local SIGNS = {
@@ -208,7 +246,7 @@ local SIGNS = {
 	{ -1760, "Z3 战斗直线|射手×2 · 核×2 · 闸门(可绕)" },
 	{ -2240, "Z4 跳跃 20°/30°|条纹=同高理论落点:白巡航/青冲刺/金心流" },
 	{ -2610, "Z5 贴墙段 WallRideSurface|M6.5 前=普通墙" },
-	{ -2960, "Z6 冲线" },
+	{ -2960, "Z6 冲线 · 终点门在前方|穿过 FINISH = 结算" },
 }
 for _, s in ipairs(SIGNS) do
 	local _, cf = at(s[1], 700)
@@ -241,7 +279,7 @@ for _, tag in ipairs({ "EnergyCrystal", "EnergyCore", "ShooterEnemy", "Destructi
 	counts[tag] = n
 end
 print(string.format(
-	"[gauntlet] 完成:CP %d · 水晶 %d(含边界探针2) · 核 %d · 射手 %d · 闸门 %d · 贴墙面 %d · 坡2 · 路牌 %d",
+	"[gauntlet] 完成:CP %d · 水晶 %d(含边界探针2) · 核 %d · 射手 %d · 闸门 %d · 贴墙面 %d · 坡2 · 终点门1 · 路牌 %d",
 	#path, counts.EnergyCrystal, counts.EnergyCore, counts.ShooterEnemy,
 	counts.Destructible, counts.WallRideSurface, #SIGNS))
 print("[gauntlet] 供给预算:晶 " .. counts.EnergyCrystal .. "×18(蓝区) · 核 2×25+闸 15+弹反 25/斩敌 30(红区)→ 心流在 Z3 可达")
