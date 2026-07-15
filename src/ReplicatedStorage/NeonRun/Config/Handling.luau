@@ -96,6 +96,7 @@ return {
 		HeightBandSpeed = 26,   -- A/D 高度带滑移速率(studs/s;人工验收项)
 		FallDriftPerSec = 0,    -- 下坠漂移:>0=墙上持续下滑此速率(默认 0=关;M9.5 AB/人工验收)
 		CamRollSec = 0.25,      -- 相机滚转平滑时长(roll≤90°;人工验收项)
+		ChainMaxTurnDeg = 8,    -- M8.5 直墙链跨段交接:相邻段面/切向夹角上限(ADR-41 曲墙=离散直墙链)
 	},
 	Sound = {
 		EngineVolume = 0.4,

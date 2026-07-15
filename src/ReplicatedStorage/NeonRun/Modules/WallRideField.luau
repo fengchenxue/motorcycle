@@ -84,6 +84,34 @@ function WallRideField.facePoint(hit)
 	return cf.Position + hit.n * seg.halfT
 end
 
+-- M8.5 直墙链跨段交接(ADR-41:曲墙=离散直墙链):当前段 Z 越界时,找"同面、同向、
+-- 覆盖当前位置"的相邻段无缝续吸;找不到=真·段尾(调用方走弹道交接)。
+-- opts: { minDot(面/切向对齐余弦), hover, tol(离面高容差) }
+-- 交接段几何择优与遍历顺序无关:候选唯一性由链搭接保证(相邻段小搭接,当前段已 Z 越界被自然排除)。
+function WallRideField:findContinuation(pos, n, along, opts)
+	local best, bestErr = nil, math.huge
+	for part, seg in pairs(self.segments) do
+		if part.Parent then
+			local cf = part.CFrame
+			local lp = cf:PointToObjectSpace(pos)
+			if math.abs(lp.Z) <= seg.halfL and math.abs(lp.Y) <= seg.halfH then
+				local sign = (lp.X >= 0) and 1 or -1
+				local n2 = cf.RightVector * sign
+				local segLook = cf.LookVector
+				local along2 = (along:Dot(segLook) >= 0) and segLook or -segLook
+				local sideDist = math.abs(lp.X) - seg.halfT
+				local err = math.abs(sideDist - opts.hover)
+				if n2:Dot(n) >= opts.minDot and along2:Dot(along) >= opts.minDot
+					and err <= opts.tol and err < bestErr then
+					best = { seg = seg, sign = sign, n = n2, along = along2 }
+					bestErr = err
+				end
+			end
+		end
+	end
+	return best
+end
+
 function WallRideField:destroy()
 	if self._addedConn then self._addedConn:Disconnect() end
 	if self._removedConn then self._removedConn:Disconnect() end

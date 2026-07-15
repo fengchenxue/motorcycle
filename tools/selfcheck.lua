@@ -85,6 +85,10 @@ do
 	local wsNr2 = workspace:FindFirstChild("NeonRun")
 	local anchorRoot = wsNr2 and wsNr2:FindFirstChild("RespawnAnchors")
 	out.respawnAnchors = anchorRoot and #anchorRoot:GetChildren() or 0
+	-- M8.5:compile 产物核对(Content 摆件数 + 分段门属性;空=只跑过 P1/gauntlet)
+	local track2 = wsNr2 and wsNr2:FindFirstChild("Track")
+	out.trackContentItems = track2 and track2:FindFirstChild("Content") and #track2.Content:GetChildren() or 0
+	out.trackCheckpointTs = track2 and track2:GetAttribute("CheckpointTs") or "NONE"
 end
 
 -- M8.1 静态战斗 Tag(闸门/核):Destructible=闸门 +15,EnergyCore=核 +25

@@ -30,7 +30,7 @@ for _, dead in ipairs({ "WallRideGainPerSec", "WallRideMinSpeed" }) do eInst:Set
 local WALLCFG = {
 	WallRide_EnterWindowStuds = 6, WallRide_EnterMinSpeed = 60, WallRide_EnterMaxAngleDeg = 45,
 	WallRide_EnterTowardMinSpeed = 5, WallRide_BlendSec = 0.2, WallRide_HeightBandSpeed = 26,
-	WallRide_FallDriftPerSec = 0, WallRide_CamRollSec = 0.25,
+	WallRide_FallDriftPerSec = 0, WallRide_CamRollSec = 0.25, WallRide_ChainMaxTurnDeg = 8,
 	-- M4.1 新键(BikeController 现依赖;坑 7:显式种,绕开 require 缓存旧 flat)
 	Collision_SideOffset = 1.1,
 	Respawn_AnchorSpacingSec = 5, Respawn_SetbackAnchors = 0, Respawn_InputProtectSec = 0.5,

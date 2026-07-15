@@ -523,11 +523,31 @@ function BikeController:_wallStep(dt)
 	pos += w.n * (hover + offN - (pos - facePt):Dot(w.n))
 	self.physPos = pos
 
-	-- 退出判定(墙局部坐标):|Z|>半长=段尾弹道交接;Y>上缘=弹出(墙上高度=落差跳距);Y<下缘=回地
+	-- 退出判定(墙局部坐标):|Z|>半长=段尾;Y>上缘=弹出(墙上高度=落差跳距);Y<下缘=回地。
+	-- M8.5(ADR-41)段尾先找直墙链延续段(同面同向、覆盖当前位置)无缝续吸;链端才真·弹道交接。
 	local lp = part.CFrame:PointToObjectSpace(pos)
 	if math.abs(lp.Z) > w.seg.halfL or math.abs(lp.Y) > w.seg.halfH then
-		self:_exitWall(hVel)
-		return
+		local handed = false
+		if math.abs(lp.Y) <= w.seg.halfH and self.wallField and self.wallField.findContinuation then
+			local nxt = self.wallField:findContinuation(pos, w.n, w.along, {
+				minDot = math.cos(math.rad(C("WallRide", "ChainMaxTurnDeg"))),
+				hover = hover,
+				tol = 2,
+			})
+			if nxt then
+				w.seg, w.n, w.along = nxt.seg, nxt.n, nxt.along
+				self.yaw = math.atan2(-nxt.along.X, -nxt.along.Z)
+				-- 重新钉扎到新段悬浮面(相邻段夹角 ≤ChainMaxTurnDeg,一帧内吸收;视觉/相机 lerp 平滑)
+				local facePt2 = nxt.seg.part.CFrame.Position + nxt.n * nxt.seg.halfT
+				pos += nxt.n * (hover - (pos - facePt2):Dot(nxt.n))
+				self.physPos = pos
+				handed = true
+			end
+		end
+		if not handed then
+			self:_exitWall(hVel)
+			return
+		end
 	end
 
 	-- 姿态:目标=贴墙框架(up=墙法线);混合期从入墙姿态过渡;视觉弹簧照常(steer 滚转=爬升压弯感)

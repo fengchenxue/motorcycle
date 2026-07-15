@@ -22,6 +22,7 @@ local ADD_H = {
 	WallRide_EnterWindowStuds = 6, WallRide_EnterMinSpeed = 60, WallRide_EnterMaxAngleDeg = 45,
 	WallRide_EnterTowardMinSpeed = 5, WallRide_BlendSec = 0.2, WallRide_HeightBandSpeed = 26,
 	WallRide_FallDriftPerSec = 0, WallRide_CamRollSec = 0.25,
+	WallRide_ChainMaxTurnDeg = 8,   -- M8.5 直墙链跨段交接(ADR-41)
 }
 for k, v in pairs(ADD_H) do
 	if hInst:GetAttribute(k) == nil then hInst:SetAttribute(k, v); added[#added + 1] = "Handling." .. k .. "=" .. tostring(v) end

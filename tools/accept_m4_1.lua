@@ -26,7 +26,7 @@ for k, v in pairs({
 	Respawn_AnchorMaxTurnDeg = 6, Respawn_AnchorClearAheadStuds = 60,
 	WallRide_EnterWindowStuds = 6, WallRide_EnterMinSpeed = 60, WallRide_EnterMaxAngleDeg = 45,
 	WallRide_EnterTowardMinSpeed = 5, WallRide_BlendSec = 0.2, WallRide_HeightBandSpeed = 26,
-	WallRide_FallDriftPerSec = 0, WallRide_CamRollSec = 0.25,
+	WallRide_FallDriftPerSec = 0, WallRide_CamRollSec = 0.25, WallRide_ChainMaxTurnDeg = 8,
 }) do hInst:SetAttribute(k, v) end
 
 local BikeController = require(nr.Modules.BikeController:Clone())

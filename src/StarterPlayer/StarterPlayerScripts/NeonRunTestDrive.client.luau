@@ -221,7 +221,21 @@ hitboxSel.Transparency = 1
 hitboxSel.Parent = hitboxViz
 
 -- M8:计时器(发车标准化+检查点+四奖牌+一键重开)
-local timer = RaceTimer.new(ctrl, spline, { trackId = "Track01", laps = 1, closed = TRACK_CLOSED })
+-- M8.5 P4:分段门 Ts 优先读 TrackBuilder 烘焙属性(Track.CheckpointTs,与门拱/校验同源);无则模块默认
+local checkpointTs = nil
+do
+	local trackFolder = cpFolder.Parent:FindFirstChild("Track")
+	local s = trackFolder and trackFolder:GetAttribute("CheckpointTs")
+	if type(s) == "string" and #s > 0 then
+		checkpointTs = {}
+		for num in string.gmatch(s, "[^,]+") do
+			local v = tonumber(num)
+			if v then checkpointTs[#checkpointTs + 1] = v end
+		end
+		if #checkpointTs == 0 then checkpointTs = nil end
+	end
+end
+local timer = RaceTimer.new(ctrl, spline, { trackId = "Track01", laps = 1, closed = TRACK_CLOSED, checkpoints = checkpointTs })
 
 -- M7 锻点 HUD:中心十字(锁定=橘黄,在窗口=青绿发光=可斩)
 local reticle = Instance.new("Frame")
