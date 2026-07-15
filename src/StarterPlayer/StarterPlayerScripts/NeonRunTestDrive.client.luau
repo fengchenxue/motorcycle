@@ -527,6 +527,7 @@ RunS.RenderStepped:Connect(function(dt)
 	if not bike.PrimaryPart then return end
 	ctrl:renderInterpolate(fixed:alpha())  -- M4.1:两物理步间插值写渲染位姿(高帧率平滑)
 	rig:update(dt)
+	vfx:cameraStep()  -- 冲刺速度线钉相机(必须在 rig:update 写完相机后,同帧零滞后)
 	-- M8:绿灯后 GO! 短暂停留再渐隐;倒计时期间大数字实时显示
 	local rtState = timer:getTelemetry().state
 	if rtState == "racing" and countdownLabel.Text == "GO!" then

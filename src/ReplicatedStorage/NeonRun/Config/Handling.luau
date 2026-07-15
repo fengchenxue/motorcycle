@@ -106,6 +106,17 @@ return {
 		WhooshVolume = 0.7,     -- 擦墙呼啸
 		WhooshCooldownSec = 0.8,
 	},
+	VFX = {
+		-- 冲刺速度线(BikeVFX 表现层):相机空间放射线,tele.sprinting 淡入淡出,贴图由远及近流动
+		SpeedLineFlowSpeed = 1,     -- 贴图流速(正=屏心远处流向屏边近处=迎面冲来;越大越急)
+		SpeedLineTexLen = 8,        -- 一段贴图的长度(studs,Wrap 重复)
+		SpeedLineFadeInSec = 0.2,   -- 冲刺开始淡入时长
+		SpeedLineFadeOutSec = 0.25, -- 冲刺结束/燃尽淡出时长
+		SpeedLineMaxAlpha = 0.85,   -- 最亮时可见度(0~1)
+		SpeedLineWidth = 1.2,       -- 线宽(studs,离镜头 6~30 studs 处的观感宽度)
+		SpeedLineParticleRate = 80, -- 风粒子每秒条数(0=只留 Beam 层)
+		SpeedLineParticleSpeed = 90,-- 风粒子飞行速度(studs/s,由前方朝镜头掠过)
+	},
 	Combat = {
 		-- 斩击判定(ADR-16):按键帧对注册目标做车体局部空间盒查询,禁 Touched
 		HitboxForward = 12,     -- 判定盒:车前深度(studs)
