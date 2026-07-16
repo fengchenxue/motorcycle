@@ -40,6 +40,7 @@ local PARAMS = {
 	{ "Camera", "SteerRollLerpSec", 0, 0.60, 2 },
 	{ "Camera", "LatLagSec", 0, 0.60, 2 },
 	{ "Camera", "SteerLeadStuds", -6, 6, 1 },
+	{ "Camera", "SteerLeadLerpSec", 0, 1.0, 2 },
 	{ "Camera", "FOVSpeedGain", 0, 0.30, 2 },
 	{ "Camera", "FOVPunchDeg", 0, 12, 0 },
 	{ "Camera", "FOVPunchDecaySec", 0.10, 0.80, 2 },

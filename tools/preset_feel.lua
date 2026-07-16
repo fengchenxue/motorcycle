@@ -40,7 +40,7 @@ local TOUCHED = {
 	"Camera_FOVBase", "Camera_FOVSprint", "Camera_FlowFOV", "Camera_FOVLerpSec",
 	"Camera_ShakeSprint", "Camera_ShakeFreqHz",
 	"Camera_SteerRollGain", "Camera_SteerRollMaxDeg", "Camera_SteerRollLerpSec", "Camera_LatLagSec",
-	"Camera_SteerLeadStuds", "Camera_FOVSpeedGain",
+	"Camera_SteerLeadStuds", "Camera_SteerLeadLerpSec", "Camera_FOVSpeedGain",
 	"Camera_FOVPunchDeg", "Camera_FOVPunchDecaySec", "Camera_LandDipPerVy", "Camera_LandDipMax",
 	"Camera_ShakeSpeedGain", "Camera_AirPitchDownDeg", "Camera_AirPitchLerpSec",
 	"Steering_InputRampInSec", "Steering_TurnRateHighDeg",

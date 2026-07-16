@@ -50,6 +50,7 @@ function CameraRig:snap()
 	self.airPitch = 0           -- ⑥下坠俯视当前角
 	self.prevGroundedCam = true -- ④落地上升沿检测
 	self.camRollSm = 0          -- ①b 侧倾低通状态(SteerRollLerpSec;人类首轮反馈:倾斜要克制)
+	self.leadSm = 0             -- ⑧横移渐近状态(SteerLeadLerpSec;人类五轮反馈:平移要逐渐逼近)
 	local target = self.ctrl.physPos
 	self.camPos = target - look * C("Camera", "Distance") + Vector3.new(0, C("Camera", "Height"), 0)
 	if self.camera then
@@ -184,12 +185,19 @@ function CameraRig:update(dt)
 	if self.airPitch > 1e-3 then
 		lookAt -= rolledUp * (math.tan(math.rad(self.airPitch)) * C("Camera", "LookAhead"))
 	end
-	-- ADR-44⑧ 转向横移(v2 修:纯平移——机位与看点**同量**偏移,视轴方向不变;
-	-- v1 只偏机位不偏看点,实测观感="转弯时的朝向"而非平移,人类打回)。
-	-- 正=镜头向转弯方向领先(车偏画面外、看穿弯内);负=反向;0=关。平滑=steer 渐变自身(InputRamp)。
+	-- ADR-44⑧ 转向横移(v3:偏移量走独立低通=渐近逼近目标位,GR2 式缓冲——人类五轮反馈
+	-- "突然被拉过去没有缓冲"打回 v2 的直通;v2 的纯平移保留:机位与看点**同量**偏移,视轴不变)。
+	-- 正=镜头向转弯方向领先(车偏画面外、看穿弯内);负=反向;0=关。leadSm 为带符号标量,
+	-- 沿当帧 latDir 施加(转弯中方向自然跟随);墙态目标归 0=平滑渐出。
 	local lead = C("Camera", "SteerLeadStuds") or 0
-	if lead ~= 0 and not tele.wallRiding and latDir.Magnitude > 1e-4 then
-		local leadOff = latDir.Unit * (-(tele.steer or 0) * lead)
+	local leadTarget = 0
+	if lead ~= 0 and not tele.wallRiding then
+		leadTarget = -(tele.steer or 0) * lead
+	end
+	local leadAlpha = 1 - math.exp(-dt / math.max(C("Camera", "SteerLeadLerpSec") or 0.35, 1e-3))
+	self.leadSm += (leadTarget - self.leadSm) * leadAlpha
+	if math.abs(self.leadSm) > 1e-4 and latDir.Magnitude > 1e-4 then
+		local leadOff = latDir.Unit * self.leadSm
 		camPos += leadOff
 		lookAt += leadOff
 	end
