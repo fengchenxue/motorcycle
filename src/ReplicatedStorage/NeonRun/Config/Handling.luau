@@ -162,6 +162,7 @@ return {
 		CrystalSpinDeg = 160,       -- 水晶碎晶环绕角速度(度/s;0=静态装饰省每帧写,移动端阀)
 		CoreSpinDeg = 60,           -- 能量核卫星角速度(度/s;0=静态)
 		ItemBobStuds = 0.35,        -- 拾取物装饰悬浮起伏幅度
+		RiderEnabled = 1,           -- 骑手上车(ADR-50b):玩家 avatar 骑车+长剑;0=回旧停机坪(重进 Play 生效)
 		SprintJetRate = 90,         -- 冲刺尾焰粒子率(0=关;心流自动 ×1.4+变金)
 		SprintWakeSec = 0.3,        -- 冲刺地面尾迹存续(0=关;心流变金)
 		UnderglowBrightness = 4,    -- 车底霓虹光强(平时 ×0.3 微亮,冲刺全亮;0=关)

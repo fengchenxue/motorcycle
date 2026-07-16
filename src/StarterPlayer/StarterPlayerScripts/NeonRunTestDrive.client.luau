@@ -20,6 +20,7 @@ local RaceTimer = require(mods:WaitForChild("RaceTimer"))
 local ShooterField = require(mods:WaitForChild("ShooterField"))
 local BikeVFX = require(mods:WaitForChild("BikeVFX"))
 local CombatVFX = require(mods:WaitForChild("CombatVFX"))
+local RiderRig = require(mods:WaitForChild("RiderRig"))
 local WallRideField = require(mods:WaitForChild("WallRideField"))
 local FixedStep = require(mods:WaitForChild("FixedStep"))
 local RespawnAnchors = require(mods:WaitForChild("RespawnAnchors"))
@@ -29,13 +30,7 @@ local cp1 = cpFolder:WaitForChild("CP01")
 local cp2 = cpFolder:WaitForChild("CP02")
 local SPAWN = CFrame.lookAt(cp1.Position + Vector3.new(0, 1.2, 0), Vector3.new(cp2.Position.X, cp1.Position.Y + 1.2, cp2.Position.Z))
 
-task.spawn(function()
-	local char = player.Character or player.CharacterAdded:Wait()
-	local hrp = char:WaitForChild("HumanoidRootPart")
-	task.wait(0.3)
-	hrp.Anchored = true
-	hrp.CFrame = CFrame.new(SPAWN.Position + Vector3.new(0, 150, 0))
-end)
+-- 角色处置在 handlingCfg 就位后决定(ADR-50b):RiderEnabled=1 → 骑手上车;0 → 旧停机坪(见下方 rider 接线)
 
 -- HUD
 local gui = Instance.new("ScreenGui")
@@ -208,6 +203,20 @@ end)
 -- 【临时调试】斩击判定盒可视化(开关=Handling 属性 Combat_DebugHitbox,属性面板实时切;正式版前移除)
 -- 盒随物理系(physPos+yaw)走,尺寸实时读 Combat_Hitbox* 四键——调参数时盒子跟着变
 local handlingCfg = RS:WaitForChild("NeonRun"):WaitForChild("Config"):WaitForChild("Handling")
+
+-- 骑手上车(ADR-50b):玩家 avatar 焊上车+程序化长剑,出刀随判定窗挥砍;0=回旧停机坪
+local riderRig
+if (handlingCfg:GetAttribute("VFX_RiderEnabled") or 1) ~= 0 then
+	riderRig = RiderRig.new(player, bike, attack)
+else
+	task.spawn(function()
+		local char = player.Character or player.CharacterAdded:Wait()
+		local hrp = char:WaitForChild("HumanoidRootPart")
+		task.wait(0.3)
+		hrp.Anchored = true
+		hrp.CFrame = CFrame.new(SPAWN.Position + Vector3.new(0, 150, 0))
+	end)
+end
 local hitboxViz = Instance.new("Part")
 hitboxViz.Name = "SlashHitboxViz"
 hitboxViz.Anchored = true
@@ -545,6 +554,7 @@ RunS.Heartbeat:Connect(function(dt)
 	audio:update(t, dt)
 	vfx:step(dt)
 	cvfx:step(dt)
+	if riderRig then riderRig:step(dt) end
 	-- M8 计时/倒计时 HUD
 	if rt.state == "countdown" then
 		countdownLabel.Text = rt.countdown and tostring(rt.countdown) or ""
