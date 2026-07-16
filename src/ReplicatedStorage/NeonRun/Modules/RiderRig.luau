@@ -1,45 +1,63 @@
--- NeonRun / RiderRig (表现层) —— 玩家 avatar 骑车 + 程序化长剑 + 出刀挥砍(ADR-50b)
+-- NeonRun / RiderRig (表现层) —— 玩家 avatar 骑车 + 程序化长剑 + 骑姿/挥砍动画(ADR-50b/50c)
 -- 兑现 ADR-10"三人称=皮肤可见性":用玩家自己的 avatar 上车,不造假人。
 -- 挂载=壳件同机制(ADR-3):HRP 焊到锚定 BikeRoot(WeldConstraint),Play 内随根刚体跟动;
 --   全角色件 CanCollide/CanQuery/CanTouch=false+Massless——**CanQuery=false 是硬要求**:
 --   否则贴身角色件会被 BikeController 的障碍扫掠/地面探针射中=幻影硬撞(饰品异步加载由 DescendantAdded 兜底)。
--- 姿态=Motor6D C0 乘偏移(前倾骑姿;R15 全套/R6 降级基本坐姿);Animate 脚本禁用+停既有动画轨。
--- 长剑=程序化(刃+霓虹锋+护手+柄,零资产),Motor6D 挂右手;出刀=肩+剑扫掠动画,
---   时窗同步 Combat_InputBufferSec(与剑光弧同一事实源:扫掠 SlashSweepSec→持窗→收刀回位)。
 -- 挂载=step 内自愈轮询(0.5s):未挂→凑齐件即挂;焊断/角色换代→重挂——一次性事件时序(CharacterAdded
---   与脚本就绪的竞态、Humanoid 晚到)全部免疫(坑 26 思路;2026-07-16 实测首版事件式在 Play 竞态漏挂,已改)。
+--   与脚本就绪的竞态、Humanoid 晚到)全部免疫(坑 26/33;2026-07-16 实测事件式在 Play 竞态漏挂,已改)。
+-- 动画=程序化两层(ADR-50c,零动画资产):
+--   · 静态骑姿=Motor6D C0 乘偏移(挂载时一次):左手前伸握车把/右臂自然下垂**拖剑**(刃尖朝后下)/前倾跨坐;
+--   · 挥砍=Motor6D.Transform 通道逐帧(仅挥砍期写):起手上扬(肩+肘+腰)→横扫(时长=VFX_SlashSweepSec)
+--     →持窗定格("刀在外面",窗=Combat_InputBufferSec,与剑光/判定同一事实源)→回位垂剑;
+--   · 拖剑火花=刃尖发射器,地面高速且非挥砍期喷(VFX_SwordDragSparkRate,0=关)。
 -- VFX_RiderEnabled=0 时 TestDrive 走旧"停机坪"路径。
--- 只写渲染层(关节 C0/焊接),物理零参与;姿态角=首版盲调,观感微调改下方 POSE 表。
+-- 只写渲染层(关节/焊接),物理零参与;姿态角=截图迭代版,观感微调改下方 POSE 表。
 local RS = game:GetService("ReplicatedStorage")
 
 local SADDLE = CFrame.new(0, 1.7, 0.55)            -- HRP 在 BikeRoot 局部系的鞍座位(朝 -Z 同向)
 local ARC_COLOR = Color3.fromRGB(90, 220, 255)     -- 锋刃霓虹青(与剑光同族)
 local BLADE_LEN = 4.6                              -- 长剑刃长(studs)
+local DRAG_MIN_SPEED = 40                          -- 拖剑火花的最低车速(studs/s)
 
--- 骑姿偏移表(C0 = 原C0 × 偏移;观感微调改这里)
+-- ── 骑姿(C0 = 原C0 × 偏移;观感微调改这里)──────────────────────────
+-- 设计:左手前伸握把;右臂垂在体侧偏后,剑尖拖在车尾侧后方
+-- (2026-07-16 Edit 预览台截图迭代定值:左手落把实测距 0.13(把位=BikeRoot 局部 (-0.5,1.7,-1.6));
+--  剑尖拖在侧后下方(局部 (2.0,-2.1,+5.4),悬浮态离地 ~0.7=火花带)。改值后可用预览台复拍验证。)
 local POSE_R15 = {
-	Waist = CFrame.Angles(math.rad(-22), 0, 0),            -- 前倾
-	Neck = CFrame.Angles(math.rad(18), 0, 0),              -- 抬头看路
-	RightShoulder = CFrame.Angles(math.rad(50), math.rad(-8), 0),  -- 双臂前伸握把
-	LeftShoulder = CFrame.Angles(math.rad(50), math.rad(8), 0),
-	RightElbow = CFrame.Angles(math.rad(25), 0, 0),
-	LeftElbow = CFrame.Angles(math.rad(25), 0, 0),
-	RightHip = CFrame.Angles(math.rad(-72), 0, math.rad(6)),       -- 屈髋跨坐
+	Waist = CFrame.Angles(math.rad(-20), 0, 0),
+	Neck = CFrame.Angles(math.rad(16), 0, 0),
+	LeftShoulder = CFrame.Angles(math.rad(86), math.rad(-35), math.rad(30)), -- 前伸+内收落把
+	LeftElbow = CFrame.Angles(math.rad(18), 0, 0),
+	RightShoulder = CFrame.Angles(math.rad(-18), 0, math.rad(4)),            -- 垂后拖剑
+	RightElbow = CFrame.Angles(math.rad(8), 0, 0),
+	RightHip = CFrame.Angles(math.rad(-72), 0, math.rad(6)),
 	LeftHip = CFrame.Angles(math.rad(-72), 0, math.rad(-6)),
 	RightKnee = CFrame.Angles(math.rad(58), 0, 0),
 	LeftKnee = CFrame.Angles(math.rad(58), 0, 0),
 }
 local POSE_R6 = {
-	Neck = CFrame.Angles(math.rad(-12), 0, 0),
-	["Right Shoulder"] = CFrame.Angles(0, 0, math.rad(-45)),
-	["Left Shoulder"] = CFrame.Angles(0, 0, math.rad(45)),
+	Neck = CFrame.Angles(math.rad(-10), 0, 0),
+	["Left Shoulder"] = CFrame.Angles(0, 0, math.rad(52)),                    -- 前伸够把(R6 轴系)
+	["Right Shoulder"] = CFrame.Angles(0, 0, math.rad(-14)),                  -- 垂后拖剑
 	["Right Hip"] = CFrame.Angles(0, 0, math.rad(-70)),
 	["Left Hip"] = CFrame.Angles(0, 0, math.rad(70)),
 }
--- 挥砍编排(右肩偏移;t=扫掠进度 0→1:从右上抡到左侧;之后持窗定格,窗尽回位)
-local SWING_WINDUP = CFrame.Angles(math.rad(95), 0, math.rad(70))
-local SWING_FOLLOW = CFrame.Angles(math.rad(55), 0, math.rad(-75))
-local SWING_RETURN_SEC = 0.18
+-- 长剑握持(SwordGrip Motor6D 的 C0):垂臂时刃尖指向后下=拖剑
+local GRIP_TRAIL_R15 = CFrame.new(0, -0.12, 0) * CFrame.Angles(math.rad(155), math.rad(2), 0)
+local GRIP_TRAIL_R6 = CFrame.new(0, -1.0, 0) * CFrame.Angles(math.rad(155), math.rad(2), 0)
+
+-- ── 挥砍编排(Transform 通道;phase: windup→sweep→hold→return)────────
+local SWING_WINDUP_SEC = 0.06
+local SWING_RETURN_SEC = 0.25
+-- 每关节 {windup, follow}(R6 缺的关节自动跳过)
+local SWING_R15 = {
+	RightShoulder = { CFrame.Angles(math.rad(150), math.rad(-25), math.rad(35)), CFrame.Angles(math.rad(80), math.rad(20), math.rad(-95)) },
+	RightElbow = { CFrame.Angles(math.rad(65), 0, 0), CFrame.Angles(math.rad(8), 0, 0) },
+	Waist = { CFrame.Angles(0, math.rad(14), 0), CFrame.Angles(0, math.rad(-18), 0) },
+}
+local SWING_R6 = {
+	["Right Shoulder"] = { CFrame.Angles(0, math.rad(-30), math.rad(160)), CFrame.Angles(0, math.rad(35), math.rad(20)) },
+}
 
 local RiderRig = {}
 RiderRig.__index = RiderRig
@@ -57,7 +75,7 @@ local function mkSwordPart(name, size, color, material, transparency)
 	return p
 end
 
--- 程序化长剑:柄→护手→刃(暗色)+锋(霓虹);返回模型与柄件(Motor6D 挂点)
+-- 程序化长剑:柄→护手→刃(亮银)+锋(霓虹);刃尖带拖地火花发射器
 local function buildSword()
 	local m = Instance.new("Model"); m.Name = "RiderSword"
 	local grip = mkSwordPart("Grip", Vector3.new(0.28, 1.15, 0.28), Color3.fromRGB(35, 35, 45), Enum.Material.SmoothPlastic)
@@ -75,21 +93,42 @@ local function buildSword()
 		local w = Instance.new("WeldConstraint")
 		w.Part0 = grip; w.Part1 = p; w.Parent = grip
 	end
+	-- 拖剑火花:刃尖(远端)发射器,step 内按车速/贴地/非挥砍驱动
+	local tip = Instance.new("Attachment")
+	tip.Name = "SwordTip"
+	tip.Position = Vector3.new(0, BLADE_LEN / 2, 0)
+	tip.Parent = edge
+	local spark = Instance.new("ParticleEmitter")
+	spark.Name = "DragSpark"
+	spark.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	spark.Color = ColorSequence.new(Color3.fromRGB(255, 235, 150), Color3.fromRGB(255, 110, 20))
+	spark.LightEmission = 1
+	spark.LightInfluence = 0
+	spark.Size = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.35), NumberSequenceKeypoint.new(1, 0) })
+	spark.Lifetime = NumberRange.new(0.12, 0.3)
+	spark.Speed = NumberRange.new(10, 26)
+	spark.SpreadAngle = Vector2.new(40, 40)
+	spark.Acceleration = Vector3.new(0, -70, 0)
+	spark.Drag = 5
+	spark.Rate = 0
+	spark.Enabled = true
+	spark.Parent = tip
 	m.PrimaryPart = grip
-	return m, grip
+	return m, grip, spark
 end
 
-function RiderRig.new(player, bikeModel, attack)
+function RiderRig.new(player, bikeModel, attack, ctrl)
 	local self = setmetatable({}, RiderRig)
 	local nr = RS:WaitForChild("NeonRun")
 	local ConfigLive = require(nr.Modules.ConfigLive)
 	self.cfg = ConfigLive.bind(nr.Config.Handling, require(nr.Config.Handling))
 	self.root = bikeModel.PrimaryPart
 	self.player = player
-	self.mounted = nil          -- { char, weld, sword, gripMotor, joints={[Motor6D]=原C0}, conns={} }
-	self.swingT = -1            -- <0=闲;>=0=挥砍进行时
+	self.ctrl = ctrl               -- 可选:拖剑火花读 grounded/speed
+	self.mounted = nil             -- { char, weld, sword, gripMotor, spark, joints={[Motor6D]=原C0}, swing={name→joint}, conns={} }
+	self.swingT = -1               -- <0=闲;>=0=挥砍进行时
 	self.swingWindow = 0
-	self._mountScanT = 0        -- 自愈轮询计时(0=下一步立即检查)
+	self._mountScanT = 0           -- 自愈轮询计时(0=下一步立即检查)
 	if attack then
 		attack:on("swing", function()
 			self.swingT = 0
@@ -105,9 +144,9 @@ function RiderRig:_ensureMounted()
 	local char = self.player.Character
 	local m = self.mounted
 	if m then
-		local stale = m.char ~= char                      -- 角色换代(死亡重生/换装)
-			or not m.char.Parent                          -- 角色已销毁
-			or not m.weld or not m.weld.Parent            -- 焊被外力清除
+		local stale = m.char ~= char
+			or not m.char.Parent
+			or not m.weld or not m.weld.Parent
 		if stale then self:unmount() else return end
 	end
 	if char and char.Parent then self:mount(char) end
@@ -133,7 +172,7 @@ function RiderRig:mount(char)
 	local humanoid = char:FindFirstChildOfClass("Humanoid")
 	if not hrp or not humanoid then return end
 	print(string.format("[RiderRig] 上车:%s(%s)", char.Name, tostring(humanoid.RigType)))
-	local m = { char = char, joints = {}, conns = {} }
+	local m = { char = char, joints = {}, swing = {}, conns = {} }
 
 	humanoid.PlatformStand = true                       -- 禁 Humanoid 状态机接管(非载具控制,ADR-1 无涉)
 	humanoid.AutoRotate = false
@@ -154,9 +193,10 @@ function RiderRig:mount(char)
 	weld.Parent = hrp
 	m.weld = weld
 
-	-- 骑姿:按 rig 类型乘偏移,存原值供还原
+	-- 骑姿:按 rig 类型乘偏移,存原值供还原;记挥砍关节表
 	local isR15 = humanoid.RigType == Enum.HumanoidRigType.R15
 	local pose = isR15 and POSE_R15 or POSE_R6
+	local swingSet = isR15 and SWING_R15 or SWING_R6
 	for _, d in ipairs(char:GetDescendants()) do
 		if d:IsA("Motor6D") then
 			local off = pose[d.Name]
@@ -164,26 +204,24 @@ function RiderRig:mount(char)
 				m.joints[d] = d.C0
 				d.C0 = d.C0 * off
 			end
-			if d.Name == (isR15 and "RightShoulder" or "Right Shoulder") then
-				m.swingJoint = d
-				m.swingIdleC0 = d.C0                    -- 骑姿态右肩(挥完回这里)
-			end
+			if swingSet[d.Name] then m.swing[d.Name] = d end
 		end
 	end
+	m.swingSet = swingSet
 
-	-- 长剑入右手
+	-- 长剑入右手(垂臂拖剑握持)
 	local hand = char:FindFirstChild(isR15 and "RightHand" or "Right Arm")
 	if hand then
-		local sword, grip = buildSword()
+		local sword, grip, spark = buildSword()
 		sword.Parent = char
 		local motor = Instance.new("Motor6D")
 		motor.Name = "SwordGrip"
 		motor.Part0 = hand; motor.Part1 = grip
-		-- 握持:刃沿手前方偏外,骑行时斜指前上(观感微调改这串)
-		motor.C0 = CFrame.new(0, isR15 and -0.15 or -1.0, 0) * CFrame.Angles(math.rad(-105), 0, math.rad(12))
+		motor.C0 = isR15 and GRIP_TRAIL_R15 or GRIP_TRAIL_R6
 		motor.Parent = hand
 		m.sword = sword
 		m.gripMotor = motor
+		m.spark = spark
 	end
 
 	self.mounted = m
@@ -194,7 +232,10 @@ function RiderRig:unmount()
 	if not m then return end
 	for _, c in ipairs(m.conns) do c:Disconnect() end
 	for joint, c0 in pairs(m.joints) do
-		if joint.Parent then joint.C0 = c0 end
+		if joint.Parent then joint.C0 = c0; joint.Transform = CFrame.identity end
+	end
+	for _, joint in pairs(m.swing) do
+		if joint.Parent then joint.Transform = CFrame.identity end
 	end
 	if m.gripMotor then m.gripMotor:Destroy() end
 	if m.sword then m.sword:Destroy() end
@@ -209,7 +250,19 @@ function RiderRig:unmount()
 	self.swingT = -1
 end
 
--- 每帧:自愈挂载轮询(0.5s)+ 挥砍编排(闲时零写;扫掠→持窗定格→窗尽回位)
+-- 挥砍关节写入:k∈[0,1] 在 {windup,follow} 间插值;nil=回 identity
+local function applySwing(m, fromIdx, toIdx, k)
+	for name, joint in pairs(m.swing) do
+		if joint.Parent then
+			local pair = m.swingSet[name]
+			local from = fromIdx == 0 and CFrame.identity or pair[fromIdx]
+			local to = toIdx == 0 and CFrame.identity or pair[toIdx]
+			joint.Transform = from:Lerp(to, k)
+		end
+	end
+end
+
+-- 每帧:自愈挂载轮询(0.5s)+ 挥砍编排 + 拖剑火花
 function RiderRig:step(dt)
 	self._mountScanT -= dt
 	if self._mountScanT <= 0 then
@@ -217,21 +270,34 @@ function RiderRig:step(dt)
 		self:_ensureMounted()
 	end
 	local m = self.mounted
-	if not m or not m.swingJoint or not m.swingJoint.Parent then return end
+	if not m then return end
+
+	-- 拖剑火花:贴地高速且非挥砍期(剑举起来了就不该冒火)
+	if m.spark then
+		local rate = 0
+		if self.ctrl and self.swingT < 0 then
+			local tele = self.ctrl.getTelemetry and self.ctrl:getTelemetry()
+			if tele and tele.grounded and (tele.speed or 0) >= DRAG_MIN_SPEED then
+				rate = self.cfg.get("VFX", "SwordDragSparkRate")
+			end
+		end
+		if m.spark.Rate ~= rate then m.spark.Rate = rate end
+	end
+
 	if self.swingT < 0 then return end
 	self.swingT += dt
 	local sweep = math.max(self.cfg.get("VFX", "SlashSweepSec"), 1e-3)
-	local idle = m.swingIdleC0
-	if self.swingT <= sweep then
-		local k = self.swingT / sweep                          -- 抡:右上→左侧
-		m.swingJoint.C0 = idle * SWING_WINDUP:Lerp(SWING_FOLLOW, k)
-	elseif self.swingT <= self.swingWindow then
-		m.swingJoint.C0 = idle * SWING_FOLLOW                  -- 持窗定格("刀留在外面")
-	elseif self.swingT <= self.swingWindow + SWING_RETURN_SEC then
-		local k = (self.swingT - self.swingWindow) / SWING_RETURN_SEC
-		m.swingJoint.C0 = idle * SWING_FOLLOW:Lerp(CFrame.identity, k)
+	local t = self.swingT
+	if t <= SWING_WINDUP_SEC then
+		applySwing(m, 0, 1, t / SWING_WINDUP_SEC)                          -- 起手上扬
+	elseif t <= SWING_WINDUP_SEC + sweep then
+		applySwing(m, 1, 2, (t - SWING_WINDUP_SEC) / sweep)                -- 横扫
+	elseif t <= self.swingWindow then
+		applySwing(m, 2, 2, 1)                                             -- 持窗定格("刀在外面")
+	elseif t <= self.swingWindow + SWING_RETURN_SEC then
+		applySwing(m, 2, 0, (t - self.swingWindow) / SWING_RETURN_SEC)     -- 回位垂剑
 	else
-		m.swingJoint.C0 = idle                                 -- 归位收工
+		applySwing(m, 0, 0, 1)                                             -- 归位收工
 		self.swingT = -1
 	end
 end

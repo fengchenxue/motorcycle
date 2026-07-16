@@ -190,6 +190,7 @@ energy:on("capFull", function() capFullT = 0.8 end)    -- 蓝区已满:toast 0.8
 -- M7:攻击系统(自动锁定·时机判定·斩击点只在直线段);命中回能由 AttackSystem 内部调 energy
 local spline = ctrl.spline
 local attack = AttackSystem.new(ctrl, energy, spline)
+ctrl:on("respawned", function() attack:reviveMercy() end) -- P3d:断口救济核随锚点重生复现(ADR-49b)
 
 -- 远程敌与快照子弹(ADR-21/22):射手本体/子弹经 AttackSystem 注册,弹反=改写目标为射手
 local shooters = ShooterField.new(ctrl, attack, energy)
@@ -207,7 +208,7 @@ local handlingCfg = RS:WaitForChild("NeonRun"):WaitForChild("Config"):WaitForChi
 -- 骑手上车(ADR-50b):玩家 avatar 焊上车+程序化长剑,出刀随判定窗挥砍;0=回旧停机坪
 local riderRig
 if (handlingCfg:GetAttribute("VFX_RiderEnabled") or 1) ~= 0 then
-	riderRig = RiderRig.new(player, bike, attack)
+	riderRig = RiderRig.new(player, bike, attack, ctrl)
 else
 	task.spawn(function()
 		local char = player.Character or player.CharacterAdded:Wait()
