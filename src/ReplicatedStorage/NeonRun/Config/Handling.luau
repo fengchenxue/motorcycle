@@ -11,21 +11,21 @@ return {
 		BrakeEnabled = true,    -- M2.1 轻刹实验开关(ADR-7,待 AB)
 		BrakeFloor = 0.7,       -- M2.1 轻刹稳态 = Base × 此值(不停死不倒车)
 		BrakeRampInSec = 0.15,  -- M2.1 刹车渐入:巡航→BrakeFloor 恰用此时长;松开走 RampUpSec 回升
-		-- ADR-46 GR2 速度手感(2026-07-16 人类反馈):默认 0=关=旧模型逐位不变;定值走 preset hot
-		AccelTauSec = 0,        -- 渐近式加速:>0=加速方向指数逼近顶速(时间常数,越近越慢;0=关=线性即达)
-		SteerDragFrac = 0,      -- 转向泄速:满转向时目标速度打此折(0.05=掉 5%,回正回升;0=关)
+		-- ADR-46 GR2 速度手感;**2026-07-16 人类锁定=hot 终值**(回归基线=accept 钉 0/0,坑 30;旧手感=preset legacy)
+		AccelTauSec = 0.9,      -- 渐近式加速:>0=加速方向指数逼近顶速(时间常数,越近越慢;0=关=线性即达)
+		SteerDragFrac = 0.05,   -- 转向泄速:满转向时目标速度打此折(0.05=掉 5%,回正回升;0=关)
 	},
 	Steering = {
 		TurnRateLowDeg = 110,   -- 低速最大转向角速度
-		TurnRateHighDeg = 55,   -- 最高速时
-		InputRampInSec = 0.12,  -- 输入渐变进入(重量感)
+		TurnRateHighDeg = 65,   -- 最高速时(2026-07-16 锁定;回归基线=accept 钉 55——锚点 69.3/55.0 按 55 校,坑 30)
+		InputRampInSec = 0.07,  -- 输入渐变进入(2026-07-16 锁定;回归基线=accept 钉 0.12)
 		InputRampOutSec = 0.20, -- 松键回正
 	},
 	Lean = {
-		BodyRollMaxDeg = 22,
+		BodyRollMaxDeg = 30,    -- 2026-07-16 锁定(旧 22=preset legacy)
 		RiderExtraDeg = 8,
-		OvershootDeg = 4,       -- 回正过冲量(弹簧阻尼比由此反解)
-		LerpSpeed = 9,          -- roll 弹簧自然频率(rad/s,越大越跟手)
+		OvershootDeg = 6,       -- 回正过冲量(弹簧阻尼比由此反解;2026-07-16 锁定,旧 4)
+		LerpSpeed = 13,         -- roll 弹簧自然频率(rad/s,越大越跟手;2026-07-16 锁定,旧 9)
 		ForkMaxDeg = 18,        -- M3 前叉视觉最大转角
 		AirPitchUpDeg = 6,      -- M3 起跳微抬头
 		SuspensionDipPerVy = 0.008, -- M3 落地下沉量 = |vy|×此值(studs)
@@ -34,36 +34,36 @@ return {
 		SuspensionDamping = 0.35,   -- M3 悬挂阻尼比(<1 有回弹)
 	},
 	Camera = {
-		FOVBase = 72,
-		FOVSprint = 88,
-		FOVLerpSec = 0.2,
-		FollowLagSec = 0.10,    -- 位置弹簧滞后
-		YawLagSec = 0.22,       -- M3 朝向滞后(转向慢半拍)
-		Distance = 16,
-		Height = 6,
-		ShakeSprint = 0.15,     -- 冲刺震动幅度(studs)
+		-- **2026-07-16 人类锁定=hot v5 终值**(五轮试玩定;旧默认=preset legacy 档,A/B 可回)
+		FOVBase = 80,
+		FOVSprint = 97,
+		FOVLerpSec = 0.12,
+		FollowLagSec = 0.07,    -- 位置弹簧滞后
+		YawLagSec = 0.4,        -- 朝向滞后(慢半拍性格,人类定调;旧 0.22)
+		Distance = 9,
+		Height = 5,
+		ShakeSprint = 0.24,     -- 冲刺震动幅度(studs)
 		ShakeFreqHz = 11,       -- M3 震动频率
-		LookAhead = 10,         -- M3 看向点前移距离
-		LookUp = 2,             -- M3 看向点抬高
+		LookAhead = 16,         -- 看向点前移距离
+		LookUp = 3.2,           -- 看向点抬高
 		WallSkin = 0.8,         -- M3 撞墙回退余量
-		FlowFOV = 92,           -- M3 心流档预留(M5 心流状态接入后生效)
-		FlowDistance = 12,      -- M3 心流档预留:近肩距离
-		-- GR2 手感包(ADR-44,2026-07-15 拍板):六特性默认=旧行为逐位不变(0=关);
-		-- 定值待人类 Play 试玩(预设切换=tools/preset_feel.lua,微调=TunePanel/属性面板)
-		SteerRollGain = 0,      -- ①转弯相机侧倾:up 绕视线轴滚 visualRoll×此值(0=关;试 0.10~0.15——人类首轮反馈:GR2 倾斜十分克制;负值=反向)
-		SteerRollMaxDeg = 10,   -- ①侧倾上限(度;克制档建议 4)
-		SteerRollLerpSec = 0,   -- ①b 侧倾低通:>0=镜头侧倾慢进慢出、吃掉车倾弹簧过冲(0=直通;试 0.15)
-		FOVSpeedGain = 0,       -- ②连续速度 FOV:每 stud/s 相对 Speed_Base 的度数增减(0=关;试 0.08)
-		FOVPunchDeg = 0,        -- ③点火冲拳:冲刺上升沿 FOV 额外冲高(0=关;试 5)
-		FOVPunchDecaySec = 0.35,-- ③冲拳线性回落时长
-		LandDipPerVy = 0,       -- ④落地相机下沉 = |落地vy|×此值(studs;0=关;试 0.006)
-		LandDipMax = 1.2,       -- ④下沉上限(studs;弹簧复用 Lean_Suspension* 与车体悬挂同律动)
-		ShakeSpeedGain = 0,     -- ⑤速度比例震动:幅度 += 此值×(速度/Speed_Base)(0=关=纯冲刺开关式)
-		AirPitchDownDeg = 0,    -- ⑥下坠俯视:滞空下落看点下移角(0=关;试 4)
-		AirPitchLerpSec = 0.25, -- ⑥俯视进出平滑时长
-		LatLagSec = 0,          -- ⑦横向独立插值:>0=相机水平横向分量单独低通(车在画面里横移、缓缓回中;0=关;试 0.22——人类首轮反馈:GR2 左右移动有插值平滑)
-		SteerLeadStuds = 0,     -- ⑧转向横移方向:正=镜头向转弯方向领先(车偏画面外、看穿弯内);负=反向(加强"车冲弯内");0=关=纯滞后(试 ±2~4)
-		SteerLeadLerpSec = 0.35,-- ⑧b 横移渐近时间常数:偏移量逐渐逼近目标位(GR2 缓冲感;越大越缓,0=直通瞬移)
+		FlowFOV = 103,          -- 心流档
+		FlowDistance = 12,      -- M3 心流档:近肩距离
+		-- GR2 手感包(ADR-44):锁定值;0 仍=对应特性关(回归相机组断言不依赖这些键的具体值)
+		SteerRollGain = 0.12,   -- ①转弯相机侧倾:up 绕视线轴滚 visualRoll×此值(负值=反向;人类:十分克制)
+		SteerRollMaxDeg = 2,    -- ①侧倾上限(度;人类终裁 2°)
+		SteerRollLerpSec = 0.3, -- ①b 侧倾低通:镜头侧倾慢进慢出、吃掉车倾弹簧过冲(0=直通)
+		FOVSpeedGain = 0.10,    -- ②连续速度 FOV:每 stud/s 相对 Speed_Base 的度数增减(0=关)
+		FOVPunchDeg = 6,        -- ③点火冲拳:冲刺上升沿 FOV 额外冲高(0=关)
+		FOVPunchDecaySec = 0.30,-- ③冲拳线性回落时长
+		LandDipPerVy = 0.008,   -- ④落地相机下沉 = |落地vy|×此值(studs;0=关)
+		LandDipMax = 1.4,       -- ④下沉上限(studs;弹簧复用 Lean_Suspension* 与车体悬挂同律动)
+		ShakeSpeedGain = 0.04,  -- ⑤速度比例震动:幅度 += 此值×(速度/Speed_Base)(0=关=纯冲刺开关式)
+		AirPitchDownDeg = 5,    -- ⑥下坠俯视:滞空下落看点下移角(0=关)
+		AirPitchLerpSec = 0.20, -- ⑥俯视进出平滑时长
+		LatLagSec = 0.2,        -- ⑦横向独立插值:相机水平横向分量单独低通(车在画面里横移、缓缓回中;0=关)
+		SteerLeadStuds = 2,     -- ⑧转向横移:正=镜头向转弯方向领先(车偏画面外、看穿弯内;人类终裁 2)
+		SteerLeadLerpSec = 0.5, -- ⑧b 横移渐近时间常数:偏移量逐渐逼近目标位(GR2 缓冲;0=直通瞬移)
 	},
 	Ground = {
 		HoverHeight = 1.6,
@@ -150,7 +150,8 @@ return {
 		HitboxSide = 7,         -- 判定盒:左右各
 		HitboxUp = 5,           -- 判定盒:上下各
 		HitboxBack = 2,         -- 判定盒:车后
-		InputBufferSec = 0.1,   -- 提前按键缓冲:窗口内目标进盒仍判命中(ADR-16)
+		InputBufferSec = 0.1,   -- 斩击判定窗:出刀后此窗内逐帧重试,目标进盒即命中(ADR-16/48;源码默认=旧值,0.25 试玩值走属性层,人类锁定后写回)
+		ParryWindowSec = 0.1,   -- 弹反窗(ADR-48):子弹只在出刀后前段可弹,与斩击窗分离保"贴脸点按"技巧;=InputBufferSec 时与旧单窗行为逐位一致
 		RecoverySec = 0.3,      -- 空挥硬直(ADR-14:失误代价只在错过能量,永不减速)
 		TelegraphRangeStuds = 55, -- 目标进入此距离触发音画预告(HUD/音效,非判定)
 		DebugHitbox = true,     -- 【临时调试】斩击判定盒可视化(青=平时/绿=盒内有目标/白=命中帧;正式版前移除)

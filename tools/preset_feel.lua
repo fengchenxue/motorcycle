@@ -1,9 +1,10 @@
 --[[
-NEON RUN — GR2 手感预设一键切换(ADR-44;命令栏或 MCP execute_luau 跑,Edit/Play 均可)
-用法:改下面 PRESET 为 "stock" | "steady" | "hot" 后整段执行;Play 内切换即时生效,停止后不留痕。
-  stock  = 还原 Handling.luau 源码默认(GR2 六特性归零 = 旧手感)
-  steady = GR2 稳妥档(低近紧相机+侧倾+速度FOV,移动端友好)
-  hot    = GR2 激进档(更低更近更快;FOVSprint 97 需真机验证晕动)
+NEON RUN — GR2 手感预设一键切换(ADR-44/46;命令栏或 MCP execute_luau 跑,Edit/Play 均可)
+用法:改下面 PRESET 为 "stock" | "hot" | "legacy" | "steady" 后整段执行;Play 内切换即时生效,停止后不留痕。
+  stock  = 还原 Handling.luau 源码默认(**2026-07-16 锁定后=hot v5 终值**)
+  hot    = 与 stock 同值(显式档,历史沿革保留)
+  legacy = 锁定前的旧手感(远机位 16/6·FOV72·线性即达速度;回归基线即此物理)
+  steady = GR2 稳妥档 v2(A/B 对照)
 只写 Handling Attributes,不碰源码;三档均先回源码值再覆盖 → 切换幂等不累积。
 微调:T 调参面板 / 属性面板;满意后对 AI 说"锁定当前参数",AI 写回 Config 源码+更新基准表。
 若相机侧倾方向感觉反了:把 Camera_SteerRollGain 改成负值即可(面板支持 -1~1)。
@@ -49,6 +50,20 @@ local TOUCHED = {
 
 local OVERRIDES = {
 	stock = {},
+	legacy = { -- 2026-07-16 锁定前的源码默认(旧手感;物理=回归基线:线性即达+55/0.12)
+		Speed_AccelTauSec = 0, Speed_SteerDragFrac = 0,
+		Camera_Distance = 16, Camera_Height = 6, Camera_LookAhead = 10, Camera_LookUp = 2,
+		Camera_FollowLagSec = 0.10, Camera_YawLagSec = 0.22,
+		Camera_FOVBase = 72, Camera_FOVSprint = 88, Camera_FlowFOV = 92, Camera_FOVLerpSec = 0.2,
+		Camera_ShakeSprint = 0.15, Camera_ShakeFreqHz = 11,
+		Camera_SteerRollGain = 0, Camera_SteerRollMaxDeg = 10, Camera_SteerRollLerpSec = 0,
+		Camera_LatLagSec = 0, Camera_SteerLeadStuds = 0, Camera_SteerLeadLerpSec = 0.35,
+		Camera_FOVSpeedGain = 0, Camera_FOVPunchDeg = 0, Camera_FOVPunchDecaySec = 0.35,
+		Camera_LandDipPerVy = 0, Camera_LandDipMax = 1.2,
+		Camera_ShakeSpeedGain = 0, Camera_AirPitchDownDeg = 0, Camera_AirPitchLerpSec = 0.25,
+		Steering_InputRampInSec = 0.12, Steering_TurnRateHighDeg = 55,
+		Lean_BodyRollMaxDeg = 22, Lean_LerpSpeed = 9, Lean_OvershootDeg = 4,
+	},
 	steady = {
 		Camera_Distance = 12.5, Camera_Height = 4.2, Camera_LookAhead = 14, Camera_LookUp = 3,
 		Camera_FollowLagSec = 0.07, Camera_YawLagSec = 0.12,
@@ -69,8 +84,8 @@ local OVERRIDES = {
 		Camera_FollowLagSec = 0.07, Camera_YawLagSec = 0.4,
 		Camera_FOVBase = 80, Camera_FOVSprint = 97, Camera_FlowFOV = 103, Camera_FOVLerpSec = 0.12,
 		Camera_ShakeSprint = 0.24, Camera_ShakeFreqHz = 11,
-		Camera_SteerRollGain = 0.12, Camera_SteerRollMaxDeg = 6, Camera_SteerRollLerpSec = 0.3,
-		Camera_LatLagSec = 0.2, Camera_SteerLeadStuds = 3, Camera_SteerLeadLerpSec = 0.5,
+		Camera_SteerRollGain = 0.12, Camera_SteerRollMaxDeg = 2, Camera_SteerRollLerpSec = 0.3,
+		Camera_LatLagSec = 0.2, Camera_SteerLeadStuds = 2, Camera_SteerLeadLerpSec = 0.5,
 		Camera_FOVSpeedGain = 0.10,
 		Camera_FOVPunchDeg = 6, Camera_FOVPunchDecaySec = 0.30,
 		Camera_LandDipPerVy = 0.008, Camera_LandDipMax = 1.4,

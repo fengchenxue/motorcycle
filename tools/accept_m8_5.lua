@@ -25,6 +25,8 @@ for k, v in pairs({
 	WallRide_EnterWindowStuds = 6, WallRide_EnterMinSpeed = 60, WallRide_EnterMaxAngleDeg = 45,
 	WallRide_EnterTowardMinSpeed = 5, WallRide_BlendSec = 0.2, WallRide_HeightBandSpeed = 26,
 	WallRide_FallDriftPerSec = 0, WallRide_CamRollSec = 0.25, WallRide_ChainMaxTurnDeg = 8,
+	Speed_AccelTauSec = 0, Speed_SteerDragFrac = 0, -- ADR-46 基线钉(坑 30):源码默认已=hot 终值(τ0.9/0.05),回归必须钉回线性
+	Steering_TurnRateHighDeg = 55, Steering_InputRampInSec = 0.12, -- 同上:锚点/轨迹基准按 55/0.12 校
 	WallRide_FilletRadius = 0,   -- ADR-45 圆角关:本验收基线=直角吸附语义
 	Collision_SideOffset = 1.1,
 	Respawn_AnchorSpacingSec = 5, Respawn_SetbackAnchors = 0, Respawn_InputProtectSec = 0.5,

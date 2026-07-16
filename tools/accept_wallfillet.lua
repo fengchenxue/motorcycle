@@ -30,6 +30,8 @@ local PIN = {
 	WallRide_EnterWindowStuds = 6, WallRide_EnterMinSpeed = 60, WallRide_EnterMaxAngleDeg = 45,
 	WallRide_EnterTowardMinSpeed = 5, WallRide_BlendSec = 0.2, WallRide_HeightBandSpeed = 26,
 	WallRide_FallDriftPerSec = 0, WallRide_CamRollSec = 0.25, WallRide_ChainMaxTurnDeg = 8,
+	Speed_AccelTauSec = 0, Speed_SteerDragFrac = 0, -- ADR-46 基线钉(坑 30):源码默认已=hot 终值(τ0.9/0.05),回归必须钉回线性
+	Steering_TurnRateHighDeg = 55, Steering_InputRampInSec = 0.12, -- 同上:锚点/轨迹基准按 55/0.12 校
 	WallRide_FilletRadius = 0, -- 各用例按需改;结束还原快照值
 }
 local saved = {}
