@@ -1,32 +1,26 @@
--- NeonRun / SprintUI (表现层) —— 冲刺 UI 动效:速度线爆发+残留 + 边缘流光 + 心流变金/入流闪光(ADR-50g)
--- 蓝本=场上搁置的 SprintCameraFX v2.1"方案B"(人类点名借鉴):其精华是**爆发包络**——
---   按下 0.05s 起攻→0.30s 全强平台→0.25s smoothstep 衰减→0.18 残留;松键 ×6/s 指数淡出;
---   满能=变暖+流速加倍+充满瞬间闪光。本实现只取 UI 层(纯 Frame+UIGradient 程序化,零贴图零资产),
---   蓝本被 ADR-44 否决的部分一概不带回:不碰 FOV(CameraRig 主权)/无 BlurEffect/无暗角/无相机抖动。
--- 驱动=tele.sprinting(与速度线/点火音同源:含最小点火尾段);心流=tele.flowBoost(变金+流速×2+入流白闪)。
--- 布局=两侧各 4 条渐变速度线(带透视倾角)+两侧边缘流光罩,屏幕中心恒净空(读路优先)。
--- 旋钮:VFX_SprintUIAlpha(总强度,0=关)/VFX_SprintUISustain(残留档)。
--- 用法:local sui = SprintUI.new(gui); sui:step(dt, tele); sui:destroy()
+-- NeonRun / SprintUI (表现层) —— 冲刺 UI 动效 v2:动态模糊+暗角+边缘流光+心流金/入流闪(ADR-50g/50h)
+-- 蓝本=场上搁置的 SprintCameraFX v2.1(人类点名借鉴,50h 实机改判追加模糊/暗角):
+--   · 模糊=Lighting BlurEffect,Size=BlurMax×强度;强度=冲刺开关平滑值(指数趋近 6/s)×能量权重(0.5+0.5e);
+--   · 暗角=双线性渐变近似径向(竖横两层黑框,免贴图),透明度=1−Vignette×强度;心流时叠脉动(蓝本满能行为);
+--   · 边缘流光=两侧亮色渐变罩,走"方案B爆发包络"(0.05 攻→0.30 全强→0.25 衰减→残留,松键 ×6/s 淡出);
+--   · 心流=全套变金+流速加倍+入流白闪 0.18s。2D 速度线层已删(50h 人类裁决"不好看";3D 速度线在 BikeVFX)。
+-- ⚠ ADR-44 曾否决全屏后处理;50h=人类实机改判部分推翻——模糊/暗角进场但**全旋钮化**:
+--   VFX_SprintBlurMax=0 / VFX_SprintVignette=0 即一键回退;移动端性能/晕动=M9.5 真机验证义务。
+-- 不写 FOV(CameraRig 主权)/无相机抖动。
+-- 用法:local sui = SprintUI.new(gui); sui:step(dt, tele, energyFrac?); sui:destroy()
 local RS = game:GetService("ReplicatedStorage")
+local Lighting = game:GetService("Lighting")
 
-local THEME = Color3.fromRGB(140, 230, 255)   -- 冲刺:霓虹青(能量族)
-local FLOW_GOLD = Color3.fromRGB(255, 210, 110) -- 心流:金(胆量勋章)
--- 方案B 包络(蓝本数值原样借用)
+local THEME = Color3.fromRGB(140, 230, 255)     -- 冲刺:霓虹青
+local FLOW_GOLD = Color3.fromRGB(255, 210, 110) -- 心流:金
+-- 方案B 包络(蓝本数值)
 local BURST_ATTACK = 0.05
 local BURST_DURATION = 0.30
 local BURST_FADE = 0.25
 local GATE_OUT_SPEED = 6
-local FLOW_SCROLL = 0.9                        -- 渐变流速(周期/秒);心流 ×2
-local FLASH_SEC = 0.18                         -- 入流白闪时长
-
--- 速度线布局:x=屏宽比例(镜像),rot=透视倾角,w=像素宽(外粗内细)
-local LINE_DEFS = {
-	{ x = 0.030, rot = 14, w = 3 },
-	{ x = 0.070, rot = 10, w = 3 },
-	{ x = 0.115, rot = 6, w = 2 },
-	{ x = 0.160, rot = 3, w = 2 },
-}
-local EDGE_W = 0.14                            -- 边缘流光罩宽(屏宽比例)
+local INTENSITY_LERP = 6                        -- 模糊/暗角进出速度(蓝本 INTENSITY_LERP)
+local FLASH_SEC = 0.18
+local EDGE_W = 0.14
 
 local SprintUI = {}
 SprintUI.__index = SprintUI
@@ -36,31 +30,27 @@ local function smoothstep(k)
 	return k * k * (3 - 2 * k)
 end
 
-local function mkLine(gui, xFrac, rot, w)
+-- 暗角层(蓝本手法:线性渐变两层近似径向,黑框中透边实)
+local function mkVignette(holder, rotation)
 	local f = Instance.new("Frame")
-	f.AnchorPoint = Vector2.new(0.5, 0.5)
-	f.Position = UDim2.new(xFrac, 0, 0.5, 0)
-	f.Size = UDim2.new(0, w, 0.92, 0)
-	f.Rotation = rot
-	f.BorderSizePixel = 0
-	f.BackgroundColor3 = THEME
+	f.Name = "Vignette" .. rotation
+	f.Size = UDim2.new(1, 0, 1, 0)
+	f.BackgroundColor3 = Color3.new(0, 0, 0)
 	f.BackgroundTransparency = 1
-	f.Parent = gui
+	f.BorderSizePixel = 0
+	f.Parent = holder
 	local g = Instance.new("UIGradient")
-	g.Rotation = 90
-	-- 亮段在中部、两端收口;Offset.Y 循环滚动=流动感
+	g.Rotation = rotation
 	g.Transparency = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 1),
-		NumberSequenceKeypoint.new(0.35, 0.15),
-		NumberSequenceKeypoint.new(0.5, 0),
-		NumberSequenceKeypoint.new(0.65, 0.15),
-		NumberSequenceKeypoint.new(1, 1),
+		NumberSequenceKeypoint.new(0, 0),
+		NumberSequenceKeypoint.new(0.5, 1),
+		NumberSequenceKeypoint.new(1, 0),
 	})
 	g.Parent = f
-	return f, g
+	return f
 end
 
-local function mkEdge(gui, leftSide)
+local function mkEdge(holder, leftSide)
 	local f = Instance.new("Frame")
 	f.AnchorPoint = Vector2.new(leftSide and 0 or 1, 0.5)
 	f.Position = UDim2.new(leftSide and 0 or 1, 0, 0.5, 0)
@@ -68,7 +58,8 @@ local function mkEdge(gui, leftSide)
 	f.BorderSizePixel = 0
 	f.BackgroundColor3 = THEME
 	f.BackgroundTransparency = 1
-	f.Parent = gui
+	f.ZIndex = 2
+	f.Parent = holder
 	local g = Instance.new("UIGradient")
 	g.Rotation = leftSide and 0 or 180
 	g.Transparency = NumberSequence.new({
@@ -89,35 +80,36 @@ function SprintUI.new(gui)
 	self.holder.Size = UDim2.new(1, 0, 1, 0)
 	self.holder.BackgroundTransparency = 1
 	self.holder.Parent = gui
-	self.lines = {}   -- { frame, gradient, phase }
-	for _, d in ipairs(LINE_DEFS) do
-		local fL, gL = mkLine(self.holder, d.x, d.rot, d.w)
-		local fR, gR = mkLine(self.holder, 1 - d.x, -d.rot, d.w)
-		table.insert(self.lines, { f = fL, g = gL, phase = d.x * 7 })
-		table.insert(self.lines, { f = fR, g = gR, phase = d.x * 13 })
-	end
+	self.vigV = mkVignette(self.holder, 90)  -- 压上下
+	self.vigH = mkVignette(self.holder, 0)   -- 压左右
 	self.edgeL = mkEdge(self.holder, true)
 	self.edgeR = mkEdge(self.holder, false)
-	-- 入流白闪(全屏,极短;纯 UI 不冻结不遮读路)
 	self.flash = Instance.new("Frame")
 	self.flash.Size = UDim2.new(1, 0, 1, 0)
 	self.flash.BackgroundColor3 = Color3.new(1, 1, 1)
 	self.flash.BackgroundTransparency = 1
 	self.flash.BorderSizePixel = 0
-	self.flash.ZIndex = 2
+	self.flash.ZIndex = 3
 	self.flash.Parent = self.holder
-	self.sprintT = math.huge  -- 距本次冲刺起点(方案B:帧驱动包络,无定时器)
-	self.gate = 0             -- 进出闸门(松键后带整体淡出)
-	self.scroll = 0           -- 渐变滚动相位
+	-- 动态模糊(Lighting 后处理;BlurMax=0 时恒 0=等效关)
+	self.blur = Instance.new("BlurEffect")
+	self.blur.Name = "NeonRunSprintBlur"
+	self.blur.Size = 0
+	self.blur.Enabled = true
+	self.blur.Parent = Lighting
+	self.sprintT = math.huge
+	self.gate = 0
+	self.sprintAlpha = 0     -- 冲刺开关平滑值(蓝本:驱动模糊/暗角,稳定不随包络)
+	self.clock = 0
 	self.flashT = 0
 	self.prevSprint = false
 	self.prevFlow = false
-	self.written = -1         -- 上次写入强度(-1=强制首写;归零后停写省帧)
+	self.written = -1
 	self.flowWritten = nil
 	return self
 end
 
--- 方案B 包络:攻→平台→smoothstep 衰减→残留
+-- 方案B 包络(边缘流光用)
 function SprintUI:_envelope(sustain)
 	local t = self.sprintT
 	if t < BURST_ATTACK then
@@ -131,14 +123,13 @@ function SprintUI:_envelope(sustain)
 	return sustain
 end
 
--- tele = ctrl:getTelemetry()(sprinting 含最小点火尾段;flowBoost=心流)
-function SprintUI:step(dt, tele)
+-- tele=ctrl:getTelemetry();energyFrac=能量比例 0..1(可省,默认 1;蓝本:低能量整体弱一档)
+function SprintUI:step(dt, tele, energyFrac)
 	local C = self.cfg.get
-	local master = C("VFX", "SprintUIAlpha")
 	local sprinting = tele.sprinting == true
 	local flow = tele.flowBoost == true
+	self.clock += dt
 
-	-- 冲刺上升沿=重开包络;闸门进出(方案B:松键 ×GATE_OUT_SPEED 指数淡出)
 	if sprinting and not self.prevSprint then self.sprintT = 0 end
 	self.prevSprint = sprinting
 	self.sprintT += dt
@@ -148,7 +139,11 @@ function SprintUI:step(dt, tele)
 		self.gate -= self.gate * math.min(GATE_OUT_SPEED * dt, 1)
 		if self.gate < 1e-3 then self.gate = 0 end
 	end
-	-- 入流白闪(上升沿)
+	-- 冲刺开关平滑值(帧率无关指数趋近,蓝本 expAlpha)
+	local target = sprinting and 1 or 0
+	self.sprintAlpha += (target - self.sprintAlpha) * (1 - math.exp(-INTENSITY_LERP * dt))
+	if self.sprintAlpha < 1e-3 and not sprinting then self.sprintAlpha = 0 end
+
 	if flow and not self.prevFlow then self.flashT = FLASH_SEC end
 	self.prevFlow = flow
 	if self.flashT > 0 then
@@ -156,32 +151,39 @@ function SprintUI:step(dt, tele)
 		self.flash.BackgroundTransparency = 1 - 0.35 * (self.flashT / FLASH_SEC)
 	end
 
+	-- 强度=开关平滑值×能量权重(蓝本 currentIntensity)
+	local e = energyFrac or 1
+	local intensity = self.sprintAlpha * (0.5 + 0.5 * math.clamp(e, 0, 1))
+	local master = C("VFX", "SprintUIAlpha")
 	local level = master * self.gate * self:_envelope(C("VFX", "SprintUISustain"))
-	if level <= 0 and self.written == 0 then return end   -- 静默期零写
+	if level <= 0 and intensity <= 0 and self.written == 0 then return end
 
-	-- 心流换色(仅变化帧写)
+	-- 模糊(BlurMax=0=关)
+	local blurMax = C("VFX", "SprintBlurMax")
+	self.blur.Size = blurMax * intensity
+	-- 暗角(Vignette=最大不透明度,0=关);心流叠脉动(蓝本满能行为)
+	local vig = C("VFX", "SprintVignette")
+	local vigI = intensity
+	if flow then vigI = intensity * (0.85 + 0.15 * math.sin(self.clock * 7)) end
+	local vt = 1 - vig * vigI
+	self.vigV.BackgroundTransparency = vt
+	self.vigH.BackgroundTransparency = vt
+	-- 边缘流光(爆发包络)+心流换色
 	if flow ~= self.flowWritten then
 		local col = flow and FLOW_GOLD or THEME
-		for _, l in ipairs(self.lines) do l.f.BackgroundColor3 = col end
 		self.edgeL.BackgroundColor3 = col
 		self.edgeR.BackgroundColor3 = col
 		self.flowWritten = flow
 	end
-	-- 渐变滚动(心流 ×2)+ 每线微闪(noise,与占位版同源手法)
-	self.scroll = (self.scroll + dt * FLOW_SCROLL * (flow and 2 or 1)) % 1
-	for i, l in ipairs(self.lines) do
-		local flicker = 0.75 + 0.25 * math.noise(self.scroll * 6 + l.phase, i * 2.7)
-		l.f.BackgroundTransparency = 1 - level * flicker
-		l.g.Offset = Vector2.new(0, -self.scroll)
-	end
 	local edgeA = 1 - level * 0.45
 	self.edgeL.BackgroundTransparency = edgeA
 	self.edgeR.BackgroundTransparency = edgeA
-	self.written = level
+	self.written = math.max(level, intensity)
 end
 
 function SprintUI:destroy()
 	self.holder:Destroy()
+	self.blur:Destroy()
 end
 
 return SprintUI

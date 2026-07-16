@@ -12,8 +12,8 @@
 --     =写其 Part0 侧 RigAttachment.CFrame(动画系统不碰 attachment,语义=C0 等价物);
 --   · 挥砍=位形通道逐帧(仅挥砍期写):起手上扬(肩+肘+腰)→横扫(时长=VFX_SlashSweepSec)
 --     →持窗定格("刀在外面",窗=Combat_InputBufferSec,与剑光/判定同一事实源)→回位垂剑;
---   · 剑特效(ADR-50d/50e/50f):锋刃呼吸辉光+刃光源(挥砍增亮)/心流=剑变金/**刃尖窄条拖痕**(挥砍期,
---     宽 ~1 格白→刃色,VFX_SwordStreakSec,0=关)——50f 人类裁决"剑痕挂剑上";全刃宽刀光/拖地火星/车前弧均已删。
+--   · 剑特效(ADR-50d~50h):心流=剑变金/**刃尖窄条拖痕**(挥砍期,宽 ~1 格白→刃色,VFX_SwordStreakSec,0=关);
+--     刃光源与锋刃呼吸脉动已删(50h 人类裁决:剑垂车尾,青光一明一暗=被误读的"车尾蓝闪");锋刃=静态微透,挥砍全亮。
 -- VFX_RiderEnabled=0 时 TestDrive 走旧"停机坪"路径。
 -- 只写渲染层(关节/焊接),物理零参与;姿态角=截图迭代版,观感微调改下方 POSE 表。
 local RS = game:GetService("ReplicatedStorage")
@@ -105,13 +105,6 @@ local function buildSword()
 		local w = Instance.new("WeldConstraint")
 		w.Part0 = grip; w.Part1 = p; w.Parent = grip
 	end
-	-- 刃光源(挥砍增亮)
-	local light = Instance.new("PointLight")
-	light.Name = "SwordLight"
-	light.Color = ARC_COLOR
-	light.Brightness = 1.5
-	light.Range = 8
-	light.Parent = blade
 	-- 刃尖窄条拖痕(ADR-50f:剑痕挂剑上;窄条=不挡视野,随真实挥剑轨迹划弧,骑行中命中悬留段拉出流光)
 	local tipA = Instance.new("Attachment"); tipA.Name = "SwordTipA"; tipA.Position = Vector3.new(0, BLADE_LEN / 2, 0); tipA.Parent = edge
 	local tipB = Instance.new("Attachment"); tipB.Name = "SwordTipB"; tipB.Position = Vector3.new(0, BLADE_LEN / 2 - 1.0, 0); tipB.Parent = edge
@@ -128,7 +121,7 @@ local function buildSword()
 	streak.Enabled = false
 	streak.Parent = edge
 	m.PrimaryPart = grip
-	return m, grip, { edge = edge, light = light, streak = streak }
+	return m, grip, { edge = edge, streak = streak }
 end
 
 function RiderRig.new(player, bikeModel, attack, ctrl)
@@ -249,7 +242,6 @@ function RiderRig:mount(char)
 		m.sword = sword
 		m.gripMotor = motor
 		m.edge = fx.edge
-		m.swordLight = fx.light
 		m.swordStreak = fx.streak
 		m.swordFlow = nil            -- 上次写入的心流态(nil=强制首写颜色)
 	end
@@ -312,25 +304,17 @@ function RiderRig:step(dt)
 		if flow ~= m.swordFlow then
 			local col = flow and FLOW_COLOR or ARC_COLOR
 			m.edge.Color = col
-			m.swordLight.Color = col
 			m.swordStreak.Color = ColorSequence.new(Color3.new(1, 1, 1), col)
 			m.swordFlow = flow
 		end
-		-- 刃尖拖痕仅挥砍期(ADR-50f);锋刃挥砍全亮否则呼吸;光源挥砍增亮
+		-- 刃尖拖痕仅挥砍期(ADR-50f);锋刃=静态微透,挥砍全亮(呼吸/光源已删,50h)
 		local streakSec = self.cfg.get("VFX", "SwordStreakSec")
 		local streakOn = swinging and streakSec > 0
 		if m.swordStreak.Enabled ~= streakOn then
 			m.swordStreak.Lifetime = streakSec
 			m.swordStreak.Enabled = streakOn
 		end
-		if swinging then
-			m.edge.Transparency = 0
-			m.swordLight.Brightness = 4
-		else
-			m.edge.Transparency = 0.1 + 0.13 * (math.sin(self._breathT or 0) + 1) * 0.5
-			m.swordLight.Brightness = 1.5
-		end
-		self._breathT = (self._breathT or 0) + dt * 4
+		m.edge.Transparency = swinging and 0 or 0.12
 	end
 
 	if self.swingT < 0 then return end

@@ -26,14 +26,45 @@ local WallRideField = require(mods:WaitForChild("WallRideField"))
 local FixedStep = require(mods:WaitForChild("FixedStep"))
 local RespawnAnchors = require(mods:WaitForChild("RespawnAnchors"))
 
-local cpFolder = workspace:WaitForChild("NeonRun"):WaitForChild("ControlPoints")
-local cp1 = cpFolder:WaitForChild("CP01")
-local cp2 = cpFolder:WaitForChild("CP02")
--- P3f(人类反馈):游戏内隐藏控制点小球(LocalTransparencyModifier=纯客户端,Edit 模式不受影响)
-for _, cp in ipairs(cpFolder:GetChildren()) do
-	if cp:IsA("BasePart") then cp.LocalTransparencyModifier = 1 end
+local wsNr = workspace:WaitForChild("NeonRun")
+-- P4a(ADR-51)Streaming 就绪:样条优先读 ReplicatedStorage.NeonRun.TrackData(compile 烘焙的全量
+-- 纯数据)。CP 球=BasePart 在 Streaming 下按距截断(坑 24),且客户端可能根本没有 CP01 可 Wait。
+-- 旧场景/试炼道(无 TrackData)兜底走 CP 球原路径。
+local splinePts, TRACK_CLOSED
+do
+	local td = RS:WaitForChild("NeonRun"):FindFirstChild("TrackData")
+	if td and td:GetAttribute("CP") then
+		splinePts = {}
+		for triple in string.gmatch(td:GetAttribute("CP"), "[^;]+") do
+			local x, y, z = string.match(triple, "([^,]+),([^,]+),([^,]+)")
+			splinePts[#splinePts + 1] = Vector3.new(tonumber(x), tonumber(y), tonumber(z))
+		end
+		TRACK_CLOSED = td:GetAttribute("Closed") == true
+	else
+		local cpFolder = wsNr:WaitForChild("ControlPoints")
+		local cps = cpFolder:GetChildren()
+		table.sort(cps, function(a, b) return (a:GetAttribute("Index") or 0) < (b:GetAttribute("Index") or 0) end)
+		splinePts = {}
+		for _, cp in ipairs(cps) do
+			if cp:IsA("BasePart") or cp:IsA("Attachment") then
+				table.insert(splinePts, cp:IsA("Attachment") and cp.WorldPosition or cp.Position)
+			end
+		end
+		TRACK_CLOSED = wsNr:GetAttribute("Closed")
+		if TRACK_CLOSED == nil then TRACK_CLOSED = true end
+	end
 end
-local SPAWN = CFrame.lookAt(cp1.Position + Vector3.new(0, 1.2, 0), Vector3.new(cp2.Position.X, cp1.Position.Y + 1.2, cp2.Position.Z))
+-- P3f(人类反馈):游戏内隐藏控制点小球(若已流入;LocalTransparencyModifier=纯客户端)
+do
+	local cpFolder = wsNr:FindFirstChild("ControlPoints")
+	if cpFolder then
+		for _, cp in ipairs(cpFolder:GetChildren()) do
+			if cp:IsA("BasePart") then cp.LocalTransparencyModifier = 1 end
+		end
+	end
+end
+local SPAWN = CFrame.lookAt(splinePts[1] + Vector3.new(0, 1.2, 0),
+	Vector3.new(splinePts[2].X, splinePts[1].Y + 1.2, splinePts[2].Z))
 
 -- 角色处置在 handlingCfg 就位后决定(ADR-50b):RiderEnabled=1 → 骑手上车;0 → 旧停机坪(见下方 rider 接线)
 
@@ -125,17 +156,8 @@ bike.Name = "TestDriveBike"
 bike.Parent = workspace
 bike:PivotTo(SPAWN)
 local ctrl = BikeController.new(bike)
--- M4:赛道样条注入,重生/坠落判定依赖。闭环/开放由 Workspace.NeonRun 的 Closed 属性定(默认 true=环道)。
--- 开放式赛道(有头有尾)= false;TrackBuilder 读同一属性,两边保持一致(M8.5 开放式支持)。
-local TRACK_CLOSED = cpFolder.Parent:GetAttribute("Closed")
-if TRACK_CLOSED == nil then TRACK_CLOSED = true end
-do
-	local cps = cpFolder:GetChildren()
-	table.sort(cps, function(a, b) return (a:GetAttribute("Index") or 0) < (b:GetAttribute("Index") or 0) end)
-	local pts = {}
-	for _, cp in ipairs(cps) do table.insert(pts, cp.Position) end
-	ctrl:setSpline(Spline.new(pts, TRACK_CLOSED))
-end
+-- M4:赛道样条注入(P4a:点集与闭环标志已在文件头解析——TrackData 优先,CP 球兜底)
+ctrl:setSpline(Spline.new(splinePts, TRACK_CLOSED))
 -- M6.5:授权贴墙段(WallRideSurface Tag 注册表;场上无 Tag 则永不入墙,零影响)
 ctrl:setWallField(WallRideField.new())
 -- M4.1(ADR-27):烘焙锚点链装载;发车位=隐式 0 号锚。未烘焙场景走 dev fallback(正式赛道必须烘焙)
@@ -533,19 +555,78 @@ UIS.InputBegan:Connect(function(input, gp)
 	end
 end)
 
+-- P4b 触控层(ADR-39 两拇指默认布局:左拇指◀▶转向,右拇指 冲刺按住+斩点按+刹;ADR-34 冲刺=按住)
+-- 仅触屏设备显示;位置/尺寸=手感域常量供人调;爪握预设+键位自定义=M10 余项。
+local touch = { left = false, right = false, sprint = false, brake = false }
+if UIS.TouchEnabled then
+	local BTN = 78          -- 主键边长(px)
+	local BIG = 96          -- 冲刺键边长(右拇指主键)
+	local M = 22            -- 屏缘留白
+	local function mkBtn(txt, anchorX, posX, posY, size)
+		local b = Instance.new("TextButton")
+		b.AnchorPoint = Vector2.new(anchorX, 1)
+		b.Position = UDim2.new(anchorX, posX, 1, posY)
+		b.Size = UDim2.new(0, size, 0, size)
+		b.BackgroundColor3 = Color3.fromRGB(12, 18, 30)
+		b.BackgroundTransparency = 0.45
+		b.TextColor3 = Color3.fromRGB(0, 220, 255)
+		b.TextSize = 26
+		b.Font = Enum.Font.GothamBold
+		b.Text = txt
+		b.AutoButtonColor = false
+		b.BorderSizePixel = 0
+		local stroke = Instance.new("UIStroke")
+		stroke.Color = Color3.fromRGB(0, 200, 255)
+		stroke.Thickness = 1.5
+		stroke.Transparency = 0.4
+		stroke.Parent = b
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 14)
+		corner.Parent = b
+		b.Parent = gui
+		return b
+	end
+	-- 按住键:InputBegan/Ended 各自捕获独立触点(左右手同时按住互不干扰)
+	local function bindHold(btn, set)
+		btn.InputBegan:Connect(function(io)
+			if io.UserInputType == Enum.UserInputType.Touch or io.UserInputType == Enum.UserInputType.MouseButton1 then
+				set(true)
+				btn.BackgroundTransparency = 0.15
+			end
+		end)
+		btn.InputEnded:Connect(function(io)
+			if io.UserInputType == Enum.UserInputType.Touch or io.UserInputType == Enum.UserInputType.MouseButton1 then
+				set(false)
+				btn.BackgroundTransparency = 0.45
+			end
+		end)
+	end
+	bindHold(mkBtn("◀", 0, M, -M, BTN), function(v) touch.left = v end)
+	bindHold(mkBtn("▶", 0, M + BTN + 14, -M, BTN), function(v) touch.right = v end)
+	bindHold(mkBtn("冲刺", 1, -M, -M, BIG), function(v) touch.sprint = v end)
+	bindHold(mkBtn("刹", 1, -(M + BIG + 14), -M, BTN), function(v) touch.brake = v end)
+	local slashBtn = mkBtn("⚔ 斩", 1, -M, -(M + BIG + 14), BTN)
+	slashBtn.Activated:Connect(function()
+		if not timer:isControlLocked() then attack:attack() end
+	end)
+	local rBtn = mkBtn("R", 1, -M, -(M + BIG + BTN + 28), 52)
+	rBtn.TextSize = 20
+	rBtn.Activated:Connect(doRestart)
+end
+
 -- M4.1(ADR-33):60Hz 定步长累加器——物理/经济/计时全部固定 dt,渲染插值在 RenderStepped
 local fixed = FixedStep.new()
 RunS.Heartbeat:Connect(function(dt)
 	-- 输入采样(帧级;步内保持不变)
 	local steer = 0
-	if UIS:IsKeyDown(Enum.KeyCode.A) then steer += 1 end
-	if UIS:IsKeyDown(Enum.KeyCode.D) then steer -= 1 end
+	if UIS:IsKeyDown(Enum.KeyCode.A) or touch.left then steer += 1 end
+	if UIS:IsKeyDown(Enum.KeyCode.D) or touch.right then steer -= 1 end
 	ctrl:setSteer(steer)
 	-- M8 发车标准化:倒计时/结算期间输入冻结(不存在抢跑)
 	local locked = timer:isControlLocked()
-	-- W=冲刺别名(与 Shift 等价,ADR-7);S=轻刹至 70%(刹车优先在 BikeController 处理)
-	ctrl:setSprint((not locked) and (UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.RightShift) or UIS:IsKeyDown(Enum.KeyCode.W)))
-	ctrl:setBrake((not locked) and UIS:IsKeyDown(Enum.KeyCode.S))
+	-- W=冲刺别名(与 Shift 等价,ADR-7);S=轻刹至 70%(刹车优先在 BikeController 处理);触控合并(P4b)
+	ctrl:setSprint((not locked) and (UIS:IsKeyDown(Enum.KeyCode.LeftShift) or UIS:IsKeyDown(Enum.KeyCode.RightShift) or UIS:IsKeyDown(Enum.KeyCode.W) or touch.sprint))
+	ctrl:setBrake((not locked) and (UIS:IsKeyDown(Enum.KeyCode.S) or touch.brake))
 	if locked then ctrl:setSteer(0) end
 	fixed:update(dt, function(stepDt)
 		-- P3f 溜车修复(人类反馈):本作=自动前进,倒计时只锁输入挡不住 RampUp——绿灯前整台物理不走步
@@ -707,5 +788,5 @@ RunS.RenderStepped:Connect(function(dt)
 		hitPop.TextTransparency = 1 - math.min(hitPopT * 3, 1)
 		hitPop.Position = UDim2.new(0.5, 0, 0.40 - (1 - hitPopT) * 0.05, 0)
 	end
-	sprintUI:step(dt, t)
+	sprintUI:step(dt, t, (et.energy or 100) / 100)
 end)

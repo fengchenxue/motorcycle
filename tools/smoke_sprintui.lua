@@ -1,17 +1,18 @@
 --[[
-NEON RUN — 冲刺 UI 动效 SprintUI 冒烟(ADR-50g;Edit 固定 dt=1/60)
-断言组(方案B 包络:攻 0.05→平台 0.30→衰减 0.25→残留;松键 ×6/s 指数淡出):
-  ① 静默:未冲刺全透明,归零后停写
-  ② 爆发:点火后平台期速度线可见(强度≈master,含 noise 微闪下限)+边缘流光按 0.45 系数
-  ③ 残留:0.8s 后衰减到 sustain 档(master×0.18)
-  ④ 松键:0.5s 指数淡出至近零
-  ⑤ 心流:变金+入流白闪(上升沿闪、0.2s 内回透明)
-  ⑥ master=0=总关
-  ⑦ destroy 零残留
+NEON RUN — 冲刺 UI 动效 SprintUI v2 冒烟(ADR-50g/50h;Edit 固定 dt=1/60)
+断言组:
+  ① 静默:未冲刺模糊 0/暗角全透/边缘全透,归零后停写
+  ② 冲刺 0.5s:模糊≈BlurMax×强度(能量权重 1)/暗角=1-0.45×强度/边缘按包络
+  ③ 残留:0.8s 后边缘退到 sustain 档
+  ④ 松键:模糊/暗角/边缘 0.8s 内近零
+  ⑤ 心流:边缘变金+入流白闪回透
+  ⑥ 旋钮=0:BlurMax=0→模糊 0;Vignette=0→暗角全透
+  ⑦ destroy:Lighting 无残留 Blur
   ⑧ 配置还原
-纯 UI 实例(Folder 下 ScreenGui,Edit 不渲染但属性可断言);钉扎自还原(坑 27/32);require(Clone)(坑 15)。
+纯实例断言(Edit 不渲染);钉扎自还原(坑 27/32);require(Clone)(坑 15)。
 ]]
 local RS = game:GetService("ReplicatedStorage")
+local Lighting = game:GetService("Lighting")
 local nr = RS:WaitForChild("NeonRun")
 local SprintUI = require(nr.Modules.SprintUI:Clone())
 local DT = 1 / 60
@@ -23,7 +24,7 @@ local function ok(name, cond, got)
 end
 
 local hInst = nr.Config.Handling
-local PIN = { VFX_SprintUIAlpha = 0.8, VFX_SprintUISustain = 0.18 }
+local PIN = { VFX_SprintUIAlpha = 0.8, VFX_SprintUISustain = 0.18, VFX_SprintBlurMax = 8, VFX_SprintVignette = 0.45 }
 local saved = {}
 for k in pairs(PIN) do saved[k] = hInst:GetAttribute(k) end
 for k, v in pairs(PIN) do hInst:SetAttribute(k, v) end
@@ -40,58 +41,57 @@ gui.Parent = folder
 
 local tele = { sprinting = false, flowBoost = false }
 local sui = SprintUI.new(gui)
-local function minLineT()
-	local m = 1
-	for _, l in ipairs(sui.lines) do m = math.min(m, l.f.BackgroundTransparency) end
-	return m
-end
 
 -- ① 静默
-sui:step(DT, tele)
-ok("①a 未冲刺全透明", minLineT() > 0.999, minLineT())
-sui:step(DT, tele)
-ok("①b 归零后停写(written=0)", sui.written == 0, tostring(sui.written))
+sui:step(DT, tele, 1)
+ok("①a 静默:模糊 0/暗角全透/边缘全透", sui.blur.Size == 0 and sui.vigV.BackgroundTransparency > 0.999
+	and sui.edgeL.BackgroundTransparency > 0.999, sui.blur.Size)
+sui:step(DT, tele, 1)
+ok("①b 归零后停写", sui.written == 0, tostring(sui.written))
 
--- ② 爆发平台(0.1s 处:攻 0.05 已过,平台 level=0.8;微闪下限 0.5 → 最亮线透明度 ≤ 1-0.4)
+-- ② 冲刺 0.5s(α≈1-e^-3≈0.95;强度=α×1)
 tele.sprinting = true
-for _ = 1, 6 do sui:step(DT, tele) end
-ok("②a 平台期速度线可见(最亮线透明度≤0.62)", minLineT() <= 0.62, minLineT())
-local edgeExpect = 1 - 0.8 * 0.45
-ok("②b 边缘流光=1-level×0.45", math.abs(sui.edgeL.BackgroundTransparency - edgeExpect) < 0.02, sui.edgeL.BackgroundTransparency)
+for _ = 1, 30 do sui:step(DT, tele, 1) end
+local a = sui.sprintAlpha
+ok("②a 模糊=BlurMax×强度", math.abs(sui.blur.Size - 8 * a) < 0.05 and sui.blur.Size > 7, sui.blur.Size)
+ok("②b 暗角=1-0.45×强度", math.abs(sui.vigV.BackgroundTransparency - (1 - 0.45 * a)) < 0.01, sui.vigV.BackgroundTransparency)
 
--- ③ 残留(0.8s:攻+平台+衰减 0.6s 已过 → sustain=0.8×0.18=0.144)
-for _ = 7, 48 do sui:step(DT, tele) end
-local t3 = minLineT()
-ok("③ 残留档(透明度∈[0.84,0.94])", t3 >= 0.84 and t3 <= 0.94, t3)
+-- ③ 边缘残留(0.8s 总时长:包络已进残留档 0.8×0.18=0.144 → 透明度=1-0.144×0.45≈0.935)
+for _ = 31, 48 do sui:step(DT, tele, 1) end
+local eT = sui.edgeL.BackgroundTransparency
+ok("③ 边缘残留档(透明度∈[0.9,0.96])", eT >= 0.9 and eT <= 0.96, eT)
 
--- ④ 松键淡出(0.5s → gate≈e^-3)
+-- ④ 松键 0.8s
 tele.sprinting = false
-for _ = 1, 30 do sui:step(DT, tele) end
-ok("④ 松键 0.5s 后近零(透明度>0.98)", minLineT() > 0.98, minLineT())
+for _ = 1, 48 do sui:step(DT, tele, 1) end
+ok("④ 松键后近零(模糊<0.15/暗角>0.99/边缘>0.99)", sui.blur.Size < 0.15
+	and sui.vigV.BackgroundTransparency > 0.99 and sui.edgeL.BackgroundTransparency > 0.99, sui.blur.Size)
 
--- ⑤ 心流:再点火进平台 → flow 上升沿=变金+白闪
+-- ⑤ 心流:变金+白闪
 tele.sprinting = true
-for _ = 1, 6 do sui:step(DT, tele) end
+for _ = 1, 10 do sui:step(DT, tele, 1) end
 tele.flowBoost = true
-sui:step(DT, tele)
-ok("⑤a 入流白闪(闪帧透明度<1)", sui.flash.BackgroundTransparency < 0.99, sui.flash.BackgroundTransparency)
-ok("⑤b 心流线变金", sui.lines[1].f.BackgroundColor3 == Color3.fromRGB(255, 210, 110), tostring(sui.lines[1].f.BackgroundColor3))
-for _ = 1, 15 do sui:step(DT, tele) end
-ok("⑤c 白闪 0.25s 内回透明", sui.flash.BackgroundTransparency > 0.999, sui.flash.BackgroundTransparency)
+sui:step(DT, tele, 1)
+ok("⑤a 入流白闪", sui.flash.BackgroundTransparency < 0.99, sui.flash.BackgroundTransparency)
+ok("⑤b 边缘变金", sui.edgeL.BackgroundColor3 == Color3.fromRGB(255, 210, 110), tostring(sui.edgeL.BackgroundColor3))
+for _ = 1, 15 do sui:step(DT, tele, 1) end
+ok("⑤c 白闪回透", sui.flash.BackgroundTransparency > 0.999, sui.flash.BackgroundTransparency)
 tele.flowBoost = false
-sui:step(DT, tele)
-ok("⑤d 退心流回青", sui.lines[1].f.BackgroundColor3 == Color3.fromRGB(140, 230, 255), tostring(sui.lines[1].f.BackgroundColor3))
+sui:step(DT, tele, 1)
+ok("⑤d 退心流回青", sui.edgeL.BackgroundColor3 == Color3.fromRGB(140, 230, 255), tostring(sui.edgeL.BackgroundColor3))
 
--- ⑥ master=0=总关
-hInst:SetAttribute("VFX_SprintUIAlpha", 0)
-sui:step(DT, tele)
-sui:step(DT, tele)
-ok("⑥ master=0 全透明且停写", minLineT() > 0.999 and sui.written == 0, minLineT())
-hInst:SetAttribute("VFX_SprintUIAlpha", PIN.VFX_SprintUIAlpha)
+-- ⑥ 旋钮=0=关
+hInst:SetAttribute("VFX_SprintBlurMax", 0)
+hInst:SetAttribute("VFX_SprintVignette", 0)
+sui:step(DT, tele, 1)
+ok("⑥ BlurMax/Vignette=0:模糊 0+暗角全透(ADR-44 一键回退)", sui.blur.Size == 0 and sui.vigV.BackgroundTransparency > 0.999,
+	sui.blur.Size .. "/" .. sui.vigV.BackgroundTransparency)
+hInst:SetAttribute("VFX_SprintBlurMax", PIN.VFX_SprintBlurMax)
+hInst:SetAttribute("VFX_SprintVignette", PIN.VFX_SprintVignette)
 
 -- ⑦ destroy
 sui:destroy()
-ok("⑦ destroy 零残留", gui:FindFirstChild("SprintUI") == nil, "残留")
+ok("⑦ destroy:Lighting 无残留 Blur", Lighting:FindFirstChild("NeonRunSprintBlur") == nil and gui:FindFirstChild("SprintUI") == nil, "残留")
 
 -- ⑧ 还原
 folder:Destroy()

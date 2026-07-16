@@ -164,8 +164,10 @@ return {
 		ItemBobStuds = 0.35,        -- 拾取物装饰悬浮起伏幅度
 		RiderEnabled = 1,           -- 骑手上车(ADR-50b):玩家 avatar 骑车+长剑;0=回旧停机坪(重进 Play 生效)
 		SwordStreakSec = 0.35,      -- 刃尖窄条拖痕存续(ADR-50f:剑痕挂剑上,挥砍期随刃尖划弧;0=关)
-		SprintUIAlpha = 0.85,       -- 冲刺 UI 动效总强度(ADR-50g 方案B包络:爆发0.3s→残留;0=关)
+		SprintUIAlpha = 0.85,       -- 冲刺边缘流光总强度(ADR-50g 方案B包络:爆发0.3s→残留;0=关)
 		SprintUISustain = 0.18,     -- 爆发后的残留档 0~1(蓝本 SUSTAIN_LEVEL;0=只爆发不残留)
+		SprintBlurMax = 8,          -- 冲刺动态模糊上限(ADR-50h 实机改判进场;0=关=回 ADR-44 原判;移动端 M9.5 必验)
+		SprintVignette = 0.45,      -- 冲刺暗角最大不透明度(双渐变近似径向;0=关;心流叠脉动)
 		SprintJetRate = 90,         -- 冲刺尾焰粒子率(0=关;心流自动 ×1.4+变金)
 		SprintWakeSec = 0.3,        -- 冲刺地面尾迹存续(0=关;心流变金)
 	},
