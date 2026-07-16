@@ -26,11 +26,13 @@ local PARRY_COLOR = Color3.fromRGB(60, 255, 180)    -- 弹反:青绿(与 Shooter
 local ENEMY_CORE_COLOR = Color3.fromRGB(255, 60, 110) -- 敌核:品红(与子弹同族)
 local CHARGE_COLOR = Color3.fromRGB(255, 40, 40)    -- 充能末态:红
 
--- 内置占位音效(引擎自带,零许可风险;正式素材=Roblox 官方音频库替换,改这里)
+-- 正式音效(2026-07-16 官方库转正,已知问题④部分清账):全部 ProSoundEffects 官方账号(id 7462895450),
+-- 选品管线=search_asset/种子邻域扫描→GetProductInfo 验 Creator=="ProSoundEffects"→Sound 装载验证(双重验证,防坑 5 盗录/未授权);
+-- 换音改这里;音量走 Sound_* Attributes(0=静);旧内置占位留作注释回退。
 local SFX = {
-	Swing = "rbxasset://sounds/swordslash.wav",
-	Hit = "rbxasset://sounds/swordlunge.wav",
-	Parry = "rbxasset://sounds/electronicpingshort.wav",
+	Swing = "rbxassetid://9114377700",  -- Fast Whoosh Bys Air Mass Pass Bys 3(与擦墙音 ...713 区分)〔旧: rbxasset://sounds/swordslash.wav〕
+	Hit = "rbxassetid://9125672726",    -- Metal Impact Sledge Hammer(1.3s 重击)〔旧: rbxasset://sounds/swordlunge.wav〕
+	Parry = "rbxassetid://9125819216",  -- Robot Impact Metal Clangs(1.1s 铿锵)〔旧: rbxasset://sounds/electronicpingshort.wav〕
 }
 
 local CombatVFX = {}
