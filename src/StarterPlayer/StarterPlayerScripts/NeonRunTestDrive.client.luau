@@ -28,6 +28,10 @@ local RespawnAnchors = require(mods:WaitForChild("RespawnAnchors"))
 local cpFolder = workspace:WaitForChild("NeonRun"):WaitForChild("ControlPoints")
 local cp1 = cpFolder:WaitForChild("CP01")
 local cp2 = cpFolder:WaitForChild("CP02")
+-- P3f(人类反馈):游戏内隐藏控制点小球(LocalTransparencyModifier=纯客户端,Edit 模式不受影响)
+for _, cp in ipairs(cpFolder:GetChildren()) do
+	if cp:IsA("BasePart") then cp.LocalTransparencyModifier = 1 end
+end
 local SPAWN = CFrame.lookAt(cp1.Position + Vector3.new(0, 1.2, 0), Vector3.new(cp2.Position.X, cp1.Position.Y + 1.2, cp2.Position.Z))
 
 -- 角色处置在 handlingCfg 就位后决定(ADR-50b):RiderEnabled=1 → 骑手上车;0 → 旧停机坪(见下方 rider 接线)
@@ -209,6 +213,14 @@ local handlingCfg = RS:WaitForChild("NeonRun"):WaitForChild("Config"):WaitForChi
 local riderRig
 if (handlingCfg:GetAttribute("VFX_RiderEnabled") or 1) ~= 0 then
 	riderRig = RiderRig.new(player, bike, attack, ctrl)
+	-- 坑 34:Humanoid 每帧强制躯干 CanCollide=true(CanQuery=false 随之对射线失效)——
+	-- 相机 popper 与障碍扫掠必须显式排除角色,否则骑手后背=幻影墙(相机被拉成伪第一人称)
+	local function excludeChar(char)
+		rig:setCharacterExclude(char)
+		ctrl:setCharacterExclude(char)
+	end
+	if player.Character then excludeChar(player.Character) end
+	player.CharacterAdded:Connect(excludeChar)
 else
 	task.spawn(function()
 		local char = player.Character or player.CharacterAdded:Wait()
@@ -249,7 +261,13 @@ do
 		if #checkpointTs == 0 then checkpointTs = nil end
 	end
 end
-local timer = RaceTimer.new(ctrl, spline, { trackId = "Track01", laps = 1, closed = TRACK_CLOSED, checkpoints = checkpointTs })
+-- P3f:完赛线优先读 TrackBuilder 烘焙属性(Track.FinishT,结局大门同源);无则默认样条末端
+local finishT = nil
+do
+	local trackFolder = workspace.NeonRun:FindFirstChild("Track")
+	finishT = trackFolder and trackFolder:GetAttribute("FinishT") or nil
+end
+local timer = RaceTimer.new(ctrl, spline, { trackId = "Track01", laps = 1, closed = TRACK_CLOSED, checkpoints = checkpointTs, finishT = finishT })
 
 -- M7 锻点 HUD:中心十字(锁定=橘黄,在窗口=青绿发光=可斩)
 local reticle = Instance.new("Frame")
@@ -540,6 +558,13 @@ RunS.Heartbeat:Connect(function(dt)
 	ctrl:setBrake((not locked) and UIS:IsKeyDown(Enum.KeyCode.S))
 	if locked then ctrl:setSteer(0) end
 	fixed:update(dt, function(stepDt)
+		-- P3f 溜车修复(人类反馈):本作=自动前进,倒计时只锁输入挡不住 RampUp——绿灯前整台物理不走步
+		-- (§8 发车标准化"车冻结直到绿灯"的落地;finished 不冻=冲线后滑行区可继续骑)
+		local rtState = timer.state
+		if rtState == "idle" or rtState == "countdown" then
+			timer:step(stepDt)   -- 只推进发车状态机
+			return
+		end
 		ctrl:step(stepDt)
 		timer:step(stepDt)  -- M8:计时/检查点/发车状态机(ctrl:step 后;计时=步数×1/60)
 		-- M5:能量与水晶(ctrl:step 后,读最新遥测)

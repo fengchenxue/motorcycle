@@ -195,6 +195,28 @@ do
 end
 
 -- ⑩ 还原
+-- ⑩ 角色排除 API(坑 34:Humanoid 强制 CanCollide=true→CanQuery 失效,popper/扫掠须显式排除)
+do
+	local BikeController = require(nr.Modules.BikeController:Clone())
+	local CameraRig = require(nr.Modules.CameraRig:Clone())
+	local cam = workspace.CurrentCamera
+	local camCF, camType = cam.CFrame, cam.CameraType         -- CameraRig.new 会动相机,现场保护
+	local ctrl2 = BikeController.new(bikeModel)
+	local rig2 = CameraRig.new(cam, ctrl2)
+	ctrl2:setCharacterExclude(char)
+	rig2:setCharacterExclude(char)
+	ok("⑩a 扫掠排除=模型+角色", #ctrl2.rp.FilterDescendantsInstances == 2 and ctrl2.rp.FilterDescendantsInstances[2] == char,
+		#ctrl2.rp.FilterDescendantsInstances)
+	ok("⑩b popper 排除=模型+角色", #rig2.rp.FilterDescendantsInstances == 2 and rig2.rp.FilterDescendantsInstances[2] == char,
+		#rig2.rp.FilterDescendantsInstances)
+	ctrl2:setCharacterExclude(nil)
+	rig2:setCharacterExclude(nil)
+	ok("⑩c 传 nil=清除回只排模型", #ctrl2.rp.FilterDescendantsInstances == 1 and #rig2.rp.FilterDescendantsInstances == 1,
+		#ctrl2.rp.FilterDescendantsInstances .. "/" .. #rig2.rp.FilterDescendantsInstances)
+	ctrl2:destroy()
+	cam.CameraType = camType; cam.CFrame = camCF               -- 还原现场
+end
+
 char:Destroy(); bikeModel:Destroy()
 for k in pairs(PIN) do hInst:SetAttribute(k, saved[k]) end
 local restoreOK = true

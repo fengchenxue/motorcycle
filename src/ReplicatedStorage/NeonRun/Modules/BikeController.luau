@@ -1061,6 +1061,14 @@ function BikeController:step(dt)
 	end
 end
 
+-- 骑手角色排除(ADR-50b/坑 34):Humanoid 每帧强制躯干/头 CanCollide=true,且 CanCollide=true 时
+-- CanQuery=false 对射线失效——障碍扫掠(self.rp)必须显式把角色排除,否则贴身躯干=幻影障碍。
+-- 传 nil=清除;重复调用=替换(角色重生换代由调用方接线)。地面探针为 Include 白名单,天然免疫。
+function BikeController:setCharacterExclude(inst)
+	self.charExclude = inst
+	self.rp.FilterDescendantsInstances = inst and { self.model, inst } or { self.model }
+end
+
 function BikeController:destroy()
 	for _, mtr in ipairs(self.forkMotors) do mtr.Transform = CFrame.identity end
 	for _, conn in ipairs(self._rideableConns or {}) do conn:Disconnect() end

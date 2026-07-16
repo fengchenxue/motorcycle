@@ -231,6 +231,12 @@ function CameraRig:update(dt)
 	end
 end
 
+-- 骑手角色排除(ADR-50b/坑 34):Humanoid 强制躯干 CanCollide=true→CanQuery=false 对射线失效,
+-- 撞墙回退射线打中骑手后背=相机被拉成伪第一人称;显式排除为正解。nil=清除;重复调用=替换。
+function CameraRig:setCharacterExclude(inst)
+	self.rp.FilterDescendantsInstances = inst and { self.ctrl.model, inst } or { self.ctrl.model }
+end
+
 function CameraRig:destroy() end
 
 return CameraRig
