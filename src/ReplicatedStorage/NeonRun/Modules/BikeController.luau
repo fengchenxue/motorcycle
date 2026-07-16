@@ -490,7 +490,7 @@ function BikeController:_enterWall(hit)
 	self._prevWall = false
 end
 
--- 段内磁吸每帧:速度渐变复用 + A/D 高度带 + 法向钉扎 + 三种退出(E4-2)
+-- 段内磁吸每帧:速度渐变复用 + A/D 高度带 + 折线行走跨段(ADR-43)+ 法向钉扎 + 三种退出(E4-2)
 function BikeController:_wallStep(dt)
 	local C = self.cfg.get
 	local w = self.wall
@@ -510,16 +510,46 @@ function BikeController:_wallStep(dt)
 		- C("WallRide", "FallDriftPerSec")
 	w.heightVel = hVel
 
-	-- 推进:切向 × 当前速度 + 高度带;法向磁吸钉扎(混合期从入墙偏移线性收敛到悬浮高)
-	local pos = self.physPos + w.along * (self.curSpeed * dt) + Vector3.new(0, hVel * dt, 0)
+	-- 推进(ADR-43 曲墙圆角=离散直墙链"折线行走"):行程在面片内直走,到当前段 Z 边界即
+	-- findContinuation 换段续吸(单关节转角 ≤ChainMaxTurnDeg,与直墙链同门禁),一帧可跨多关节
+	-- (R=6 圆角×心流 146 极端 ~6 关节/帧)。直墙段内与链端和旧实现同轨:链端剩余行程沿当前
+	-- 切向走完,帧末退出判定接管(其兜底 findContinuation 同时覆盖段间小缝隙的越缝链)。
+	-- 法向磁吸帧末钉扎一次;混合期从入墙偏移线性收敛到悬浮高,混合中过关节则探针容差按偏移放宽。
 	local blendSec = math.max(C("WallRide", "BlendSec"), 1e-3)
 	local offN = 0
 	if w.blendT < blendSec then
 		w.blendT = math.min(w.blendT + dt, blendSec)
 		offN = w.offN0 * (1 - w.blendT / blendSec)
 	end
-	local facePt = part.CFrame.Position + w.n * w.seg.halfT
 	local hover = C("Ground", "HoverHeight")
+	local chainMinDot = math.cos(math.rad(C("WallRide", "ChainMaxTurnDeg")))
+	local pos = self.physPos + Vector3.new(0, hVel * dt, 0)
+	local remain = self.curSpeed * dt
+	for _ = 1, 10 do -- 防御上限:超限=剩余直走,帧末退出判定兜底
+		local cf = w.seg.part.CFrame
+		local lp = cf:PointToObjectSpace(pos)
+		local zSign = (w.along:Dot(cf.ZVector) >= 0) and 1 or -1 -- 行进方向在局部 +Z 轴上的符号(LookVector=−Z,勿用)
+		local distToEnd = math.max(w.seg.halfL - zSign * lp.Z, 0)
+		if remain <= distToEnd then
+			pos += w.along * remain
+			remain = 0
+			break
+		end
+		pos += w.along * distToEnd
+		remain -= distToEnd
+		local nxt = (self.wallField and self.wallField.findContinuation) and
+			self.wallField:findContinuation(pos + w.along * 0.05, w.n, w.along, {
+				minDot = chainMinDot, hover = hover, tol = 2 + math.abs(offN),
+			}) or nil
+		if not nxt then
+			break
+		end
+		w.seg, w.n, w.along = nxt.seg, nxt.n, nxt.along
+		self.yaw = math.atan2(-nxt.along.X, -nxt.along.Z)
+	end
+	if remain > 0 then pos += w.along * remain end -- 链端/上限:沿当前切向走完(=旧整帧直走)
+	part = w.seg.part -- 行走可能已换段:帧末钉扎与退出判定一律对当前段
+	local facePt = part.CFrame.Position + w.n * w.seg.halfT
 	pos += w.n * (hover + offN - (pos - facePt):Dot(w.n))
 	self.physPos = pos
 
