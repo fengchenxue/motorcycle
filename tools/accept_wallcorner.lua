@@ -29,6 +29,7 @@ local PIN = {
 	WallRide_EnterWindowStuds = 6, WallRide_EnterMinSpeed = 60, WallRide_EnterMaxAngleDeg = 45,
 	WallRide_EnterTowardMinSpeed = 5, WallRide_BlendSec = 0.2, WallRide_HeightBandSpeed = 26,
 	WallRide_FallDriftPerSec = 0, WallRide_CamRollSec = 0.25, WallRide_ChainMaxTurnDeg = 8,
+	WallRide_FilletRadius = 0, -- ADR-45 圆角关:平面弯链与圆角正交,分开验收
 }
 local saved = {}
 for k, v in pairs(PIN) do saved[k] = hInst:GetAttribute(k); hInst:SetAttribute(k, v) end

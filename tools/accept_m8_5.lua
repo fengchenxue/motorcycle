@@ -25,6 +25,7 @@ for k, v in pairs({
 	WallRide_EnterWindowStuds = 6, WallRide_EnterMinSpeed = 60, WallRide_EnterMaxAngleDeg = 45,
 	WallRide_EnterTowardMinSpeed = 5, WallRide_BlendSec = 0.2, WallRide_HeightBandSpeed = 26,
 	WallRide_FallDriftPerSec = 0, WallRide_CamRollSec = 0.25, WallRide_ChainMaxTurnDeg = 8,
+	WallRide_FilletRadius = 0,   -- ADR-45 圆角关:本验收基线=直角吸附语义
 	Collision_SideOffset = 1.1,
 	Respawn_AnchorSpacingSec = 5, Respawn_SetbackAnchors = 0, Respawn_InputProtectSec = 0.5,
 	Respawn_AnchorMaxTurnDeg = 6, Respawn_AnchorClearAheadStuds = 60,

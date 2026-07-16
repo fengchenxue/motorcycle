@@ -201,7 +201,7 @@ function BikeController:getTelemetry()
 		resetCount = self.resetCount,
 		-- M6.5 墙态(ADR-36):磁吸中 grounded=false 且 wallContact=false(墙态≠擦墙,经济中性)
 		wallRiding = self.wall ~= nil,
-		wallUp = self.wall and self.wall.n or nil,  -- 车体 up=墙外法线(相机 roll 目标)
+		wallUp = self.wall and (self.wall.upEff or self.wall.n) or nil,  -- 车体 up=有效法线(圆角内=弧法线;相机 roll 目标)
 		-- M4.1:重生输入保护窗口 + 碰撞定档结果(HUD/验收断言用)
 		inputProtected = self.inputProtectT > 0,
 		contactClass = self.contactClass,
@@ -481,6 +481,27 @@ function BikeController:_enterWall(hit)
 		startCF = CFrame.lookAt(self.physPos, self.physPos + surfLook, sn),
 		heightVel = 0,      -- 当前高度带速率(退出时交接为 vy)
 	}
+	-- ADR-45 底部圆角(截面四分之一圆,半径=WallRide_FilletRadius,0=关):入点在弧内则按
+	-- 弧参数 φ 落位(ν(φ)=n·sinφ+Y·cosφ,φ=0 弧底≈直立、π/2=贴直墙),径向偏差并入原混合
+	-- ——入墙位姿从近直立起步,无 90° 突变;φ 由入点截面几何反解。
+	do
+		local filletR = C("WallRide", "FilletRadius") or 0
+		local hover = C("Ground", "HoverHeight")
+		if filletR > hover + 0.05 then
+			local bottomY = hit.seg.part.Position.Y - hit.seg.halfH
+			local h0 = self.physPos.Y - bottomY
+			if h0 < filletR then
+				local dx = filletR - (self.physPos - facePt):Dot(hit.n) -- 入点指向弧心(n 分量)
+				local dy = filletR - h0                                 -- 入点指向弧心(Y 分量)
+				self.wall.phi = math.atan2(math.max(dx, 0), math.max(dy, 1e-6))
+				self.wall.offN0 = (filletR - math.sqrt(dx * dx + dy * dy)) - hover
+				self.wall.upEff = hit.n * math.sin(self.wall.phi)
+					+ Vector3.new(0, math.cos(self.wall.phi), 0)
+			else
+				self.wall.phi = math.pi / 2
+			end
+		end
+	end
 	-- 前进方向锁切向:yaw 即刻对齐(相机读 yaw 自然跟随)
 	self.yaw = math.atan2(-hit.along.X, -hit.along.Z)
 	self.grounded = false
@@ -523,7 +544,20 @@ function BikeController:_wallStep(dt)
 	end
 	local hover = C("Ground", "HoverHeight")
 	local chainMinDot = math.cos(math.rad(C("WallRide", "ChainMaxTurnDeg")))
-	local pos = self.physPos + Vector3.new(0, hVel * dt, 0)
+	local filletR = C("WallRide", "FilletRadius") or 0
+	local HALFPI = math.pi / 2
+	local rEff = math.max(filletR - hover, 0.5) -- 车行弧半径(悬浮面内缩)
+	-- 高度带推进:弧内=φ 参数(弧长速度→角速度,ADR-45),弧外=世界 Y(原路径)
+	local pos = self.physPos
+	if w.phi and w.phi < HALFPI then
+		w.phi += (hVel * dt) / rEff
+		if w.phi <= 0 then
+			self:_exitWall(0) -- 弧底驶出=回地(位姿已近直立,地面路径即刻捕获)
+			return
+		end
+	else
+		pos += Vector3.new(0, hVel * dt, 0)
+	end
 	local remain = self.curSpeed * dt
 	for _ = 1, 10 do -- 防御上限:超限=剩余直走,帧末退出判定兜底
 		local cf = w.seg.part.CFrame
@@ -539,7 +573,8 @@ function BikeController:_wallStep(dt)
 		remain -= distToEnd
 		local nxt = (self.wallField and self.wallField.findContinuation) and
 			self.wallField:findContinuation(pos + w.along * 0.05, w.n, w.along, {
-				minDot = chainMinDot, hover = hover, tol = 2 + math.abs(offN),
+				minDot = chainMinDot, tol = 2 + math.abs(offN),
+				hover = (w.phi and w.phi < HALFPI) and (filletR - math.sin(w.phi) * rEff) or hover,
 			}) or nil
 		if not nxt then
 			break
@@ -550,7 +585,29 @@ function BikeController:_wallStep(dt)
 	if remain > 0 then pos += w.along * remain end -- 链端/上限:沿当前切向走完(=旧整帧直走)
 	part = w.seg.part -- 行走可能已换段:帧末钉扎与退出判定一律对当前段
 	local facePt = part.CFrame.Position + w.n * w.seg.halfT
-	pos += w.n * (hover + offN - (pos - facePt):Dot(w.n))
+	local upEff = w.n
+	if w.phi then
+		-- ADR-45 圆角分区衔接:向上越顶=溢出弧长转竖直高度;直墙下行跌回弧内=由高度反解 φ
+		local bottomY = part.Position.Y - w.seg.halfH
+		if w.phi >= HALFPI then
+			if w.phi > HALFPI then
+				pos = Vector3.new(pos.X, bottomY + filletR + (w.phi - HALFPI) * rEff, pos.Z)
+				w.phi = HALFPI
+			elseif pos.Y - bottomY < filletR then
+				w.phi = math.acos(math.clamp((filletR - (pos.Y - bottomY)) / rEff, 0, 1))
+			end
+		end
+		if w.phi < HALFPI then
+			local c0 = pos + w.n * (filletR - (pos - facePt):Dot(w.n))
+				+ Vector3.new(0, bottomY + filletR - pos.Y, 0) -- 弧心(车所在纵深处)
+			upEff = w.n * math.sin(w.phi) + Vector3.new(0, math.cos(w.phi), 0)
+			pos = c0 - upEff * (filletR - hover - offN)
+		end
+	end
+	if not (w.phi and w.phi < HALFPI) then
+		pos += w.n * (hover + offN - (pos - facePt):Dot(w.n))
+	end
+	w.upEff = upEff
 	self.physPos = pos
 
 	-- 退出判定(墙局部坐标):|Z|>半长=段尾;Y>上缘=弹出(墙上高度=落差跳距);Y<下缘=回地。
@@ -575,13 +632,13 @@ function BikeController:_wallStep(dt)
 			end
 		end
 		if not handed then
-			self:_exitWall(hVel)
+			self:_exitWall((w.phi and w.phi < HALFPI) and hVel * math.sin(w.phi) or hVel)
 			return
 		end
 	end
 
 	-- 姿态:目标=贴墙框架(up=墙法线);混合期从入墙姿态过渡;视觉弹簧照常(steer 滚转=爬升压弯感)
-	local targetCF = CFrame.lookAt(pos, pos + w.along, w.n)
+	local targetCF = CFrame.lookAt(pos, pos + w.along, w.upEff or w.n)
 	local baseCF = targetCF
 	if w.blendT < blendSec then
 		baseCF = w.startCF.Rotation:Lerp(targetCF.Rotation, w.blendT / blendSec) + pos
@@ -598,7 +655,7 @@ function BikeController:_exitWall(vyOut)
 	self.vySurf = 0
 	-- 姿态从墙法线起步,空中路径逐帧回正到世界 Y(AlignLerpSpeed 平滑,无跳变)
 	if w then
-		self.smoothNormal = w.n
+		self.smoothNormal = w.upEff or w.n
 	end
 	-- yaw 已是切向;水平速度=curSpeed 沿切向,普通空中/着陆路径自此接管。
 	-- 退出后横向分速为 0 → 进入探测的朝墙分速阈值挡住立即回吸(EnterTowardMinSpeed)。
