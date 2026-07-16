@@ -7,6 +7,9 @@
 --   死亡=爆点+子件隐藏;复活由轮询 part.Transparency 侦测(R 重开无独立事件)。
 --   装饰在 step 内轮询补挂(信号 deferred 兜底,坑 26;赛道重建后自动重挂)。
 -- 子弹装饰=Trail+光,颜色跟随弹体 Color(弹反变青由 ShooterField 改色,拖尾自动跟色)。
+-- 拾取物装饰(ADR-50a)=水晶(EnergyCrystal:碎晶×2 环绕+光)/能量核(EnergyCore:卫星×4 环绕+光),
+--   颜色自适应本体 part.Color;隐现随本体透明度轮询(水晶被拾=隐没沿爆一朵拾取爆点;核之死已由 hit 爆点覆盖不重爆);
+--   磁吸飞入期装饰逐帧跟 part.Position=自动跟飞。
 -- 音效=内置 rbxasset 占位(正式素材=官方音频库替换,BikeAudio 先例);音量走 Sound_* Attributes,0=静。
 -- 用法:
 --   local cvfx = CombatVFX.new(model, ctrl, attack, shooters)  -- shooters 可 nil(冒烟)
@@ -111,6 +114,7 @@ function CombatVFX.new(model, ctrl, attack, shooters)
 	self.fadeT = 0              -- fade 态余量
 	self.bursts = {}            -- 一次性爆点件 { part, ttl, light }
 	self.enemyFx = {}           -- [enemyPart] = { sats={}, disc, light, phase, charge, hidden }
+	self.itemFx = {}            -- [itemPart] = { kind="crystal"|"core", shards={}, light, hidden, bobPhase }
 	self.bulletFolder = shooters and shooters.folder or nil
 	self.time = 0
 	self._enemyScanT = 0
@@ -253,6 +257,39 @@ function CombatVFX:_hideEnemyFx(fx, hidden)
 	-- 光交给 ShooterField 的 kill/revive 灯扫描统一开关(它遍历 descendants)
 end
 
+-- 拾取物装饰(ADR-50a):水晶=碎晶×2,核=卫星×4;颜色取本体色;初始位就位(spin=0 时为静态环)
+function CombatVFX:_decorateItem(part, kind)
+	if self.itemFx[part] then return end
+	local n = kind == "crystal" and 2 or 4
+	local sz = kind == "crystal" and 0.7 or 1.0
+	local r = kind == "crystal" and 2.4 or 3.8
+	local fx = { kind = kind, shards = {}, hidden = false, bobPhase = math.random() * 6.28, radius = r }
+	for i = 1, n do
+		local s = mkPart("ItemFxShard", Vector3.new(sz, sz * 1.6, sz), part.Color, 0.15)
+		local ang = (i - 1) * (math.pi * 2 / n)
+		s.CFrame = CFrame.new(part.Position + Vector3.new(math.cos(ang) * r, 0, math.sin(ang) * r))
+			* CFrame.Angles(math.rad(45), ang, math.rad(45))
+		s.Parent = part
+		fx.shards[i] = s
+	end
+	local light = Instance.new("PointLight")
+	light.Name = "ItemFxLight"
+	light.Color = part.Color
+	light.Brightness = kind == "crystal" and 2 or 3
+	light.Range = kind == "crystal" and 12 or 20
+	light.Parent = part
+	fx.light = light
+	self.itemFx[part] = fx
+	if part.Transparency >= 0.9 then self:_hideItemFx(fx, true) end
+end
+
+function CombatVFX:_hideItemFx(fx, hidden)
+	fx.hidden = hidden
+	for _, s in ipairs(fx.shards) do s.Transparency = hidden and 1 or 0.15 end
+	-- 光:水晶由 CrystalField 的 PointLight 开关顺带管;兜底自己也切
+	if fx.light then fx.light.Enabled = not hidden end
+end
+
 function CombatVFX:step(dt)
 	local C = self.cfg.get
 	self.time += dt
@@ -317,6 +354,12 @@ function CombatVFX:step(dt)
 		for _, part in ipairs(CS:GetTagged(ENEMY_TAG)) do
 			if part:IsA("BasePart") and part.Parent then self:_decorateEnemy(part) end
 		end
+		for _, part in ipairs(CS:GetTagged("EnergyCrystal")) do
+			if part:IsA("BasePart") and part.Parent then self:_decorateItem(part, "crystal") end
+		end
+		for _, part in ipairs(CS:GetTagged("EnergyCore")) do
+			if part:IsA("BasePart") and part.Parent then self:_decorateItem(part, "core") end
+		end
 	end
 	local spin = math.rad(C("VFX", "EnemySatSpinDeg"))
 	local bobAmp = C("VFX", "EnemyBobStuds")
@@ -348,6 +391,36 @@ function CombatVFX:step(dt)
 						fx.light.Brightness = 2.5 + fx.charge * 4
 					else
 						fx.light.Brightness = 2.5
+					end
+				end
+			end
+		end
+	end
+
+	-- ── 拾取物装饰:环绕/悬浮 + 隐现随本体(水晶被拾=隐没沿拾取爆点)──
+	local bobItem = C("VFX", "ItemBobStuds")
+	for part, fx in pairs(self.itemFx) do
+		if not part.Parent then
+			self.itemFx[part] = nil
+		else
+			local visible = part.Transparency < 0.9
+			if fx.hidden and visible then
+				self:_hideItemFx(fx, false)                       -- 复现(冷却结束/R 重开)
+			elseif not fx.hidden and not visible then
+				if fx.kind == "crystal" then self:_burst(part.Position, part.Color) end -- 拾取爆点(核之死已有 hit 爆点,不重爆)
+				self:_hideItemFx(fx, true)
+			end
+			if not fx.hidden then
+				local spinKey = fx.kind == "crystal" and "CrystalSpinDeg" or "CoreSpinDeg"
+				local rate = math.rad(C("VFX", spinKey))
+				if rate > 0 then                                  -- 0=静态装饰,省每帧写(移动端阀)
+					local bob = math.sin(self.time * 2.4 + fx.bobPhase) * bobItem
+					local center = part.Position + Vector3.new(0, bob, 0)
+					local n = #fx.shards
+					for i, s in ipairs(fx.shards) do
+						local ang = self.time * rate + (i - 1) * (math.pi * 2 / n)
+						s.CFrame = CFrame.new(center + Vector3.new(math.cos(ang) * fx.radius, math.sin(ang * 2) * 0.5, math.sin(ang) * fx.radius))
+							* CFrame.Angles(math.rad(45), ang + self.time * rate, math.rad(45))
 					end
 				end
 			end
@@ -402,6 +475,11 @@ function CombatVFX:destroy()
 		if fx.light then fx.light:Destroy() end
 	end
 	self.enemyFx = {}
+	for part, fx in pairs(self.itemFx) do
+		for _, s in ipairs(fx.shards) do s:Destroy() end
+		if fx.light then fx.light:Destroy() end
+	end
+	self.itemFx = {}
 	if self.arc then
 		self.arc.beam:Destroy(); self.arc.a0:Destroy(); self.arc.a1:Destroy()
 		self.arc = nil

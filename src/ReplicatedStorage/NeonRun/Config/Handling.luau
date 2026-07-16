@@ -158,6 +158,13 @@ return {
 		EnemySatSpinDeg = 90,       -- 敌人轨道卫星角速度(度/s;充能期 ×4)
 		EnemyBobStuds = 0.6,        -- 敌人装饰悬浮起伏幅度(本体判定位置不动,纯视觉)
 		BulletTrailSec = 0.22,      -- 子弹拖尾存续(颜色自动跟弹体,弹反变青同步)
+		-- 拾取物造型+冲刺三件(ADR-50a):装饰颜色自适应本体 part.Color
+		CrystalSpinDeg = 160,       -- 水晶碎晶环绕角速度(度/s;0=静态装饰省每帧写,移动端阀)
+		CoreSpinDeg = 60,           -- 能量核卫星角速度(度/s;0=静态)
+		ItemBobStuds = 0.35,        -- 拾取物装饰悬浮起伏幅度
+		SprintJetRate = 90,         -- 冲刺尾焰粒子率(0=关;心流自动 ×1.4+变金)
+		SprintWakeSec = 0.3,        -- 冲刺地面尾迹存续(0=关;心流变金)
+		UnderglowBrightness = 4,    -- 车底霓虹光强(平时 ×0.3 微亮,冲刺全亮;0=关)
 	},
 	Combat = {
 		-- 斩击判定(ADR-16):按键帧对注册目标做车体局部空间盒查询,禁 Touched

@@ -1,9 +1,11 @@
--- NeonRun / BikeVFX (表现层) —— 碰撞火花 + 冲刺速度线(相机)
+-- NeonRun / BikeVFX (表现层) —— 碰撞火花 + 冲刺速度线(相机) + 冲刺尾焰/地面尾迹/底光(ADR-50a)
 -- 火花:发射器直接挂在载具上(随车移动)。接触墙壁(擦墙/弹开/撞死滑行)时持续喷火花;
 -- 0.3秒内没有再接触就停(linger 防抖,避免逐帧断触闪断)。bounce/hardHit 额外爆一簇。
 -- 速度线:相机空间双层——Beam 放射线(屏心远→屏边近,贴图由远及近慢流)+ 风粒子掠过。
 -- 由 tele.sprinting 驱动(与点火音效同源:含最小点火尾段,空能量按键不触发),
 -- 开关走透明度淡入淡出(硬切 Enabled 贴图相位会跳)。参数=Handling VFX_* Attributes 实时调。
+-- 冲刺三件(ADR-50a):尾焰喷口(车尾粒子射流)+地面尾迹(低位 Trail 光带)+车底霓虹光;
+-- 均由 sprinting 驱动,心流(flowBoost)换金色=心流状态一眼可读("心流=胆量勋章"可视化)。
 -- 只读 ctrl,不写物理。钉相机需在相机写完后调 cameraStep()(NeonRunTestDrive 的 rig:update 之后)。
 local RS = game:GetService("ReplicatedStorage")
 
@@ -11,6 +13,8 @@ local BikeVFX = {}
 BikeVFX.__index = BikeVFX
 
 local LINGER = 0.3   -- 脱离接触后火花继续持续的秒数
+local SPRINT_COLOR = Color3.fromRGB(0, 220, 255)   -- 冲刺:霓虹青(能量族)
+local FLOW_COLOR = Color3.fromRGB(255, 200, 80)    -- 心流:金(胆量勋章)
 
 -- 速度线贴图(手作参照:Workspace.VFX.Beam;换正式素材改这里)
 local SPEEDLINE_TEXTURE = "rbxassetid://6967022163"
@@ -118,6 +122,60 @@ local function makeSpeedLineRig()
 	return rig, beams, wind
 end
 
+-- 冲刺尾焰:车尾喷口射流(局部 +Z=车尾;短寿命拉成焰舌)
+local function makeJet(rootPart)
+	local att = Instance.new("Attachment")
+	att.Name = "SprintJetFX"
+	att.Position = Vector3.new(0, -0.6, 3.4)
+	att.Parent = rootPart
+	local jet = Instance.new("ParticleEmitter")
+	jet.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	jet.Color = ColorSequence.new(SPRINT_COLOR)
+	jet.LightEmission = 1
+	jet.LightInfluence = 0
+	jet.EmissionDirection = Enum.NormalId.Back
+	jet.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1.1),
+		NumberSequenceKeypoint.new(1, 0),
+	})
+	jet.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.1),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	jet.Lifetime = NumberRange.new(0.1, 0.2)
+	jet.Speed = NumberRange.new(28, 44)
+	jet.SpreadAngle = Vector2.new(8, 8)
+	jet.Rate = 0
+	jet.Enabled = true   -- 开关走 Rate
+	jet.Parent = att
+	return jet
+end
+
+-- 地面尾迹:车底低位 Trail 光带(冲刺时车后拖出能量残迹)
+local function makeWake(rootPart)
+	local a0 = Instance.new("Attachment"); a0.Name = "SprintWakeL"; a0.Position = Vector3.new(-0.9, -1.1, 2.6); a0.Parent = rootPart
+	local a1 = Instance.new("Attachment"); a1.Name = "SprintWakeR"; a1.Position = Vector3.new(0.9, -1.1, 2.6); a1.Parent = rootPart
+	local trail = Instance.new("Trail")
+	trail.Name = "SprintWake"
+	trail.Attachment0 = a0
+	trail.Attachment1 = a1
+	trail.Color = ColorSequence.new(SPRINT_COLOR)
+	trail.LightEmission = 1
+	trail.LightInfluence = 0
+	trail.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.35),
+		NumberSequenceKeypoint.new(1, 1),
+	})
+	trail.WidthScale = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 1),
+		NumberSequenceKeypoint.new(1, 0.25),
+	})
+	trail.FaceCamera = true
+	trail.Enabled = false
+	trail.Parent = rootPart
+	return trail
+end
+
 function BikeVFX.new(model, ctrl)
 	local self = setmetatable({}, BikeVFX)
 	self.ctrl = ctrl
@@ -131,6 +189,16 @@ function BikeVFX.new(model, ctrl)
 	self.rig.Parent = workspace.CurrentCamera
 	self.lineAlpha = 0     -- 速度线当前可见度 0~1(渐变)
 	self.lineWritten = -1  -- 上次写入实例的可见度(-1=强制首写)
+	-- 冲刺三件(ADR-50a)
+	self.jet = makeJet(model.PrimaryPart)
+	self.wake = makeWake(model.PrimaryPart)
+	self.underglow = Instance.new("PointLight")
+	self.underglow.Name = "SprintUnderglow"
+	self.underglow.Color = SPRINT_COLOR
+	self.underglow.Brightness = 0
+	self.underglow.Range = 14
+	self.underglow.Parent = model.PrimaryPart
+	self.flowWritten = nil   -- 上次写入的心流态(nil=强制首写颜色)
 	ctrl:on("bounce", function() self.emit:Emit(22) end)
 	ctrl:on("hardHit", function() self.emit:Emit(40) end)
 	return self
@@ -189,6 +257,23 @@ function BikeVFX:step(dt)
 		self.wind.Rate = C("VFX", "SpeedLineParticleRate") * self.lineAlpha
 		self.lineWritten = self.lineAlpha
 	end
+
+	-- 冲刺三件(ADR-50a):尾焰 Rate/尾迹开关随 sprinting,颜色随心流(仅变化帧写实例)
+	local flow = t.flowBoost == true
+	if flow ~= self.flowWritten then
+		local col = flow and FLOW_COLOR or SPRINT_COLOR
+		self.jet.Color = ColorSequence.new(col)
+		self.wake.Color = ColorSequence.new(col)
+		self.underglow.Color = col
+		self.flowWritten = flow
+	end
+	local jetRate = C("VFX", "SprintJetRate")
+	self.jet.Rate = (t.sprinting and jetRate or 0) * (flow and 1.4 or 1)
+	local wakeSec = C("VFX", "SprintWakeSec")
+	self.wake.Lifetime = math.max(wakeSec, 0)
+	self.wake.Enabled = t.sprinting and wakeSec > 0
+	local glowMax = C("VFX", "UnderglowBrightness")
+	self.underglow.Brightness = glowMax * (t.sprinting and 1 or 0.3)   -- 平时微亮霓虹车底,冲刺全亮
 end
 
 -- 相机后置步:必须在相机写完之后调(NeonRunTestDrive 渲染循环 rig:update 之后),
@@ -204,6 +289,9 @@ end
 function BikeVFX:destroy()
 	if self.emit then self.emit:Destroy() end
 	if self.rig then self.rig:Destroy() end
+	if self.jet then self.jet:Destroy() end
+	if self.wake then self.wake:Destroy() end
+	if self.underglow then self.underglow:Destroy() end
 end
 
 return BikeVFX
