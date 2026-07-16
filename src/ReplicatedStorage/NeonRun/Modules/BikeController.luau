@@ -502,8 +502,13 @@ function BikeController:_enterWall(hit)
 			end
 		end
 	end
-	-- 前进方向锁切向:yaw 即刻对齐(相机读 yaw 自然跟随)
-	self.yaw = math.atan2(-hit.along.X, -hit.along.Z)
+	-- ADR-45a 入墙动量平滑:运动自本帧起锁切向(不变),但偏航在混合窗内缓转(消 28° 单帧甩头);
+	-- 径向逼近速率 vRad0 交给混合曲线(Hermite)平滑归零(消入墙一帧 ~1700 studs/s² 动量突变)。
+	-- 径向速率必须投影到入墙时刻的有效法线(圆角内 ν(φ0)≠n:水平朝墙速在弧底的径向分量只有 sinφ0 倍)
+	local entryVel = look * self.curSpeed + Vector3.new(0, self.grounded and 0 or self.vy, 0)
+	self.wall.vRad0 = math.max(0, entryVel:Dot(-(self.wall.upEff or hit.n)))
+	self.wall.yaw0 = self.yaw
+	self.wall.tYaw = math.atan2(-hit.along.X, -hit.along.Z)
 	self.grounded = false
 	self.vy = 0
 	self.vySurf = 0
@@ -537,12 +542,24 @@ function BikeController:_wallStep(dt)
 	-- 切向走完,帧末退出判定接管(其兜底 findContinuation 同时覆盖段间小缝隙的越缝链)。
 	-- 法向磁吸帧末钉扎一次;混合期从入墙偏移线性收敛到悬浮高,混合中过关节则探针容差按偏移放宽。
 	local blendSec = math.max(C("WallRide", "BlendSec"), 1e-3)
+	local hover = C("Ground", "HoverHeight")
 	local offN = 0
 	if w.blendT < blendSec then
 		w.blendT = math.min(w.blendT + dt, blendSec)
-		offN = w.offN0 * (1 - w.blendT / blendSec)
+		local bs = w.blendT / blendSec
+		-- ADR-45a C¹ 混合:偏移从 offN0 以斜率 −vRad0 起步,Hermite 收敛到悬浮零速
+		-- (允许轻微过冲=磁吸"接住";限幅防贴脸)
+		offN = w.offN0 * (2 * bs ^ 3 - 3 * bs ^ 2 + 1)
+			- (w.vRad0 or 0) * blendSec * (bs ^ 3 - 2 * bs ^ 2 + bs)
+		offN = math.max(offN, -hover * 0.5)
+		-- 偏航缓转(运动仍锁切向;yaw 只喂相机/退出航向)
+		if w.tYaw then
+			local dyaw = math.atan2(math.sin(w.tYaw - w.yaw0), math.cos(w.tYaw - w.yaw0))
+			self.yaw = w.yaw0 + dyaw * (3 * bs ^ 2 - 2 * bs ^ 3)
+		end
+	elseif w.tYaw then
+		self.yaw = w.tYaw
 	end
-	local hover = C("Ground", "HoverHeight")
 	local chainMinDot = math.cos(math.rad(C("WallRide", "ChainMaxTurnDeg")))
 	local filletR = C("WallRide", "FilletRadius") or 0
 	local HALFPI = math.pi / 2
@@ -580,7 +597,8 @@ function BikeController:_wallStep(dt)
 			break
 		end
 		w.seg, w.n, w.along = nxt.seg, nxt.n, nxt.along
-		self.yaw = math.atan2(-nxt.along.X, -nxt.along.Z)
+		w.tYaw = math.atan2(-nxt.along.X, -nxt.along.Z)
+		if w.blendT >= blendSec then self.yaw = w.tYaw end
 	end
 	if remain > 0 then pos += w.along * remain end -- 链端/上限:沿当前切向走完(=旧整帧直走)
 	part = w.seg.part -- 行走可能已换段:帧末钉扎与退出判定一律对当前段
@@ -623,7 +641,8 @@ function BikeController:_wallStep(dt)
 			})
 			if nxt then
 				w.seg, w.n, w.along = nxt.seg, nxt.n, nxt.along
-				self.yaw = math.atan2(-nxt.along.X, -nxt.along.Z)
+				w.tYaw = math.atan2(-nxt.along.X, -nxt.along.Z)
+				if w.blendT >= blendSec then self.yaw = w.tYaw end
 				-- 重新钉扎到新段悬浮面(相邻段夹角 ≤ChainMaxTurnDeg,一帧内吸收;视觉/相机 lerp 平滑)
 				local facePt2 = nxt.seg.part.CFrame.Position + nxt.n * nxt.seg.halfT
 				pos += nxt.n * (hover - (pos - facePt2):Dot(nxt.n))

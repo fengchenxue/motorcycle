@@ -234,10 +234,12 @@ local okRun, runErr = pcall(function()
 		local res = ride(rig, 140, function(f, entered) return entered and 0 or ((f <= 12) and -1 or 0) end, false, true)
 		ok("④驻留:全程吸附不掉墙", res.enteredAt and res.exits == 0, string.format("exits=%d", res.exits))
 		local minY, maxY = math.huge, -math.huge
-		for _, y in ipairs(res.ys) do
-			minY = math.min(minY, y); maxY = math.max(maxY, y)
+		for i, y in ipairs(res.ys) do
+			if i > 14 then -- 跳过混合窗(ADR-45a C¹ 混合期径向有意收敛,非漂移)
+				minY = math.min(minY, y); maxY = math.max(maxY, y)
+			end
 		end
-		ok("④驻留:高度零漂(≤0.05)", (maxY - minY) <= 0.05, string.format("%.3f", maxY - minY))
+		ok("④驻留:高度零漂(混合后 ≤0.05)", (maxY - minY) <= 0.05, string.format("%.3f", maxY - minY))
 	end
 
 	cleanupTmp()

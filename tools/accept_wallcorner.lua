@@ -133,6 +133,8 @@ local function ride(rig, opt)
 				res.attached = true
 				res.speedAtAttach = tel.speed
 				res.yawAtAttach = ctrl.yaw
+			elseif res.wallFrames == 13 and not res.yawPostBlend then
+				res.yawPostBlend = ctrl.yaw -- ADR-45a:入墙 yaw 缓转(0.2s=12 帧),净转向从混合后起量
 			end
 			if prevRiding and prevYaw ~= nil then
 				local d = math.deg(math.abs(math.atan2(math.sin(ctrl.yaw - prevYaw), math.cos(ctrl.yaw - prevYaw))))
@@ -179,8 +181,8 @@ local okRun, runErr = pcall(function()
 		local tailD = res.lastWallPos and
 			(Vector3.new(res.lastWallPos.X, 0, res.lastWallPos.Z) - Vector3.new(rig.lastEnd.X, 0, rig.lastEnd.Z)).Magnitude or 999
 		ok(label .. " 退出点=末墙尾(≤12)", tailD <= 12, string.format("%.1f", tailD))
-		local net = res.yawLast and wrapDeg(res.yawLast - res.yawAtAttach) or 999
-		ok(label .. " 净转向=+90°±2", math.abs(net - 90) <= 2, string.format("%.2f", net))
+		local net = res.yawLast and wrapDeg(res.yawLast - (res.yawPostBlend or res.yawAtAttach)) or 999
+		ok(label .. " 净转向(混合后)=+90°±2", math.abs(net - 90) <= 2, string.format("%.2f", net))
 		ok(label .. " 速度不减(≥入弯−0.5)", res.speedLast ~= nil and res.speedAtAttach ~= nil
 			and res.speedLast >= res.speedAtAttach - 0.5,
 			string.format("%s→%s", tostring(res.speedAtAttach), tostring(res.speedLast)))
