@@ -657,7 +657,16 @@ function BikeController:_wallStep(dt)
 			self.yaw = w.yaw0 + dyaw * (3 * bs ^ 2 - 2 * bs ^ 3)
 		end
 	elseif w.tYaw then
-		self.yaw = w.tYaw
+		-- ADR-43a 链关节平滑:yaw 不随交接瞬跳,指数趋近切向(0=旧瞬跳;直墙恒等=零回归)
+		local cs = C("WallRide", "ChainSmoothSec") or 0
+		if cs > 1e-3 then
+			local d = math.atan2(math.sin(w.tYaw - self.yaw), math.cos(w.tYaw - self.yaw))
+			if math.abs(d) < 1e-6 then
+				self.yaw = w.tYaw -- ε 吸附:直墙与收敛尾恢复逐位恒等(m6_5 类回归零扰动)
+			else
+				self.yaw += d * (1 - math.exp(-dt / cs))
+			end
+		end
 	end
 	local chainMinDot = math.cos(math.rad(C("WallRide", "ChainMaxTurnDeg")))
 	local filletR = C("WallRide", "FilletRadius") or 0
@@ -696,8 +705,7 @@ function BikeController:_wallStep(dt)
 			break
 		end
 		w.seg, w.n, w.along = nxt.seg, nxt.n, nxt.along
-		w.tYaw = math.atan2(-nxt.along.X, -nxt.along.Z)
-		if w.blendT >= blendSec then self.yaw = w.tYaw end
+		w.tYaw = math.atan2(-nxt.along.X, -nxt.along.Z) -- yaw 收敛交给帧级平滑(ADR-43a)
 	end
 	if remain > 0 then pos += w.along * remain end -- 链端/上限:沿当前切向走完(=旧整帧直走)
 	part = w.seg.part -- 行走可能已换段:帧末钉扎与退出判定一律对当前段
@@ -742,8 +750,7 @@ function BikeController:_wallStep(dt)
 			})
 			if nxt then
 				w.seg, w.n, w.along = nxt.seg, nxt.n, nxt.along
-				w.tYaw = math.atan2(-nxt.along.X, -nxt.along.Z)
-				if w.blendT >= blendSec then self.yaw = w.tYaw end
+				w.tYaw = math.atan2(-nxt.along.X, -nxt.along.Z) -- yaw 收敛交给帧级平滑(ADR-43a)
 				-- 重新钉扎到新段悬浮面(相邻段夹角 ≤ChainMaxTurnDeg,一帧内吸收;视觉/相机 lerp 平滑)
 				local facePt2 = nxt.seg.part.CFrame.Position + nxt.n * nxt.seg.halfT
 				pos += nxt.n * (hover - (pos - facePt2):Dot(nxt.n))
@@ -758,9 +765,19 @@ function BikeController:_wallStep(dt)
 	end
 
 	-- 姿态:目标=贴墙框架(up=墙法线);混合期从入墙姿态过渡;视觉弹簧照常(steer 滚转=爬升压弯感)
-	local lookT = w.along
+	local lookT
 	if w.climb then
 		lookT = (w.upEff or w.n):Cross(-w.n:Cross(Vector3.yAxis)) -- μ=ν×rightT:沿面向上(车头昂起)
+	else
+		-- ADR-43a:姿态 look 同步平滑(链关节 6° 瞬跳→指数趋近;直墙 Lerp(a,a)=a 恒等)
+		local cs = C("WallRide", "ChainSmoothSec") or 0
+		if cs > 1e-3 then
+			local sa = (w.smoothAlong or w.along):Lerp(w.along, 1 - math.exp(-dt / cs))
+			w.smoothAlong = (sa.Magnitude > 1e-4) and sa.Unit or w.along
+			lookT = w.smoothAlong
+		else
+			lookT = w.along
+		end
 	end
 	local targetCF = CFrame.lookAt(pos, pos + lookT, w.upEff or w.n)
 	local baseCF = targetCF
@@ -1031,7 +1048,9 @@ function BikeController:step(dt)
 				and self.wallField.findClimbEntry then
 				local vel = look * self.curSpeed + Vector3.new(0, self.grounded and 0 or self.vy, 0)
 				local chit = self.wallField:findClimbEntry(self.physPos, vel, {
-					window = C("WallRide", "EnterWindowStuds"),
+					-- 爬墙探测窗提前到圆角脚(≥R):高速帧步进下 φ0≈0=朝墙动量全额转爬升
+					-- (窗=6 时 135 速常在 φ0≈30° 才咬住,白扔 ~11% 动量,越顶门槛虚高)
+					window = math.max(C("WallRide", "EnterWindowStuds"), filletR + 1),
 					minToward = C("WallRide", "ClimbMinToward") or 5,
 				})
 				if chit then

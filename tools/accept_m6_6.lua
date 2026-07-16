@@ -33,6 +33,7 @@ local PIN = {
 	WallRide_ClimbEnabled = 1, WallRide_ClimbMinToward = 5, WallRide_ClimbGravityScale = 1,
 	WallRide_ClimbDriftDecaySec = 0.6, WallRide_ClimbConvertSteer = 0.5,
 	WallRide_ClimbStallKeepSpeed = 0, WallRide_ClimbReenterCDSec = 0.5,
+	WallRide_ChainSmoothSec = 0.08,
 }
 local saved = {}
 for k, v in pairs(PIN) do saved[k] = hInst:GetAttribute(k); hInst:SetAttribute(k, v) end
@@ -175,7 +176,7 @@ local okRun, runErr = pcall(function()
 		ok("①正面@100:不撞死(resets=0)", res.resets == 0, res.resets)
 		ok("①正面@100:进爬墙(≥5 帧)", res.climbFrames >= 5, res.climbFrames)
 		local apex = res.maxYWall - ORIGIN.Y
-		ok("①冲高≈20.2±2.5(实 " .. string.format("%.1f", apex) .. ")", math.abs(apex - 20.2) <= 2.5, apex)
+		ok("①冲高 19~23(早捕获满动量,实 " .. string.format("%.1f", apex) .. ")", apex >= 19 and apex <= 23, apex)
 		ok("①失速离墙一次", res.exits == 1, res.exits)
 		ok("①落地续骑(grounded ≥10 帧)", res.landedAt ~= nil and res.groundedAfter >= 10,
 			tostring(res.landedAt) .. "/" .. tostring(res.groundedAfter))

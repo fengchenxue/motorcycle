@@ -4,7 +4,9 @@
 --   · 判定=按键帧对注册目标做局部盒查询(前 HitboxForward/侧 ±HitboxSide/上下 ±HitboxUp/后 -HitboxBack),禁 Touched(ADR-16)
 --   · 任何攻击永不减速;空挥代价只有 RecoverySec 硬直与错过能量(ADR-14)
 --   · 反馈永不冻结画面与输入,无子弹时间/hitstop(ADR-20);剑光纯 VFX 由表现层订阅事件实现
---   · 窗口时长=盒深÷相对速度,随速自动收窄;InputBufferSec 提前按缓冲
+--   · 判定窗(ADR-48):出刀后 InputBufferSec 内逐帧结算,进盒即中且不收窗(窗内持续可多段命中);恒时窗,任何速度下按键宽容一致
+--   · 攻击间隔=RecoverySec,判定窗≈其 80%(人类拍板 0.25/0.3);弹反不区分同窗;ParryWindowSec>0=独立弹反窗应急开关(默认 0=关)
+--   · 空挥=全窗零命中才发 whiff
 --   · 斩击点只在直线段(注册期 lint 警告);墙不注册不判定(斩墙零收益,ADR-23)
 -- 注册两路:CollectionService Tag(静态摆放:EnergyCore/Destructible)+ registerTarget API(运行时对象:子弹/射手本体,由 ShooterField 挂入)。
 -- 能量入账:slash/core 在斩击帧走本模块;parry 的 +25 在击杀帧由 ShooterField 入账(ADR-29 杀敌回能)。数字权威在 EnergyState。
@@ -36,7 +38,9 @@ function AttackSystem.new(ctrl, energy, spline)
 	self.energy = energy
 	self.spline = spline
 	self.recoveryT = 0         -- 出刀硬直(按键帧启动,命中与否同长)
-	self.bufferT = 0           -- 输入缓冲余量(>0 时每帧重试结算)
+	self.bufferT = 0           -- 判定窗余量(>0 时每帧结算)
+	self.parryT = 0            -- 弹反窗余量(ADR-48:默认=斩击窗全长;ParryWindowSec>0 时独立)
+	self.windowHits = 0        -- 本窗累计命中数(whiff=全窗零命中)
 	self.nearestDist = math.huge
 	self.inVolume = false
 	self.targets = {}          -- [part] = { kind, dead, onHit, revive, baseTransparency, telegraphed }
@@ -137,7 +141,9 @@ end
 function AttackSystem:_tryResolve()
 	local hits = {}
 	for part, info in pairs(self.targets) do
-		if part.Parent and not info.dead and self:_inHitbox(part.Position) then
+		if part.Parent and not info.dead
+			and (info.kind ~= "parry" or self.parryT > 0) -- ADR-48:独立弹反窗启用且已过=子弹不可斩(默认不区分,parryT=窗全长)
+			and self:_inHitbox(part.Position) then
 			table.insert(hits, part)
 		end
 	end
@@ -158,19 +164,23 @@ function AttackSystem:_tryResolve()
 		if info.kind == "parry" then parried = true end
 		table.insert(kinds, info.kind)
 	end
-	self.bufferT = 0
+	-- ADR-48:命中不收窗——窗内后续进盒目标继续结算(持续多段);whiff 由 windowHits 兜底判定
+	self.windowHits += #hits
 	self:_fire("hit", { parts = hits, kinds = kinds, count = #hits })
 	if parried then self:_fire("parry", {}) end
 	return #hits
 end
 
--- 按键帧:出刀。硬直中拒绝;否则立即查询,未中则留 InputBufferSec 缓冲逐帧重试。
+-- 按键帧:出刀。硬直中拒绝;否则窗内(InputBufferSec)逐帧结算,进盒即中、持续可多段(ADR-48;弹反默认同窗)。
 -- 永不减速:本函数(及本模块)不触碰任何速度量(ADR-14 断言点)。
 function AttackSystem:attack()
 	if self.recoveryT > 0 then return "recovery" end
 	local C = self.cfg.get
 	self.recoveryT = C("Combat", "RecoverySec")
 	self.bufferT = C("Combat", "InputBufferSec")
+	local pw = C("Combat", "ParryWindowSec")
+	self.parryT = pw > 0 and pw or self.bufferT -- 0=不区分:弹反窗=斩击窗全长(人类拍板)
+	self.windowHits = 0
 	self:_fire("swing", {})
 	if self:_tryResolve() > 0 then return "hit" end
 	return "swing"
@@ -178,10 +188,13 @@ end
 
 function AttackSystem:step(dt)
 	if self.recoveryT > 0 then self.recoveryT = math.max(0, self.recoveryT - dt) end
-	-- 缓冲窗:提前按了但目标未进盒 → 后续帧目标进盒仍算命中;窗尽未中=空挥
+	-- 判定窗:提前按了但目标未进盒 → 后续帧目标进盒仍算命中;全窗零命中=空挥
 	if self.bufferT > 0 then
 		self.bufferT -= dt
-		if self:_tryResolve() == 0 and self.bufferT <= 0 then
+		self:_tryResolve()
+		-- ADR-48:弹反窗在本步结算之后才扣减(窗尽帧仍可弹,与斩击窗同径)
+		self.parryT = math.max(0, self.parryT - dt)
+		if self.bufferT <= 0 and self.windowHits == 0 then
 			self.bufferT = 0
 			self:_fire("whiff", {})
 		end
@@ -210,6 +223,8 @@ end
 function AttackSystem:reset()
 	self.recoveryT = 0
 	self.bufferT = 0
+	self.parryT = 0
+	self.windowHits = 0
 	for part, info in pairs(self.targets) do
 		if info.dead then
 			if info.revive then

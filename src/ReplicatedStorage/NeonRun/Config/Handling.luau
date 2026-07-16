@@ -124,6 +124,7 @@ return {
 		ClimbConvertSteer = 0.5, -- 爬墙中 |A/D|≥此值=转侧骑(>1=禁用转换);转换走 C¹ 混合
 		ClimbStallKeepSpeed = 0, -- 失速离墙保留的前速比例(0=清零防贴脸;>0 可能贴墙振荡,调参注意)
 		ClimbReenterCDSec = 0.5, -- 失速后爬墙再入冷却(防落回裙板立刻回吸的微跳循环)
+		ChainSmoothSec = 0.08,  -- ADR-43a 链关节平滑:yaw/姿态朝切向指数趋近时长(0=关=关节瞬跳)
 	},
 	Sound = {
 		EngineVolume = 0.4,
@@ -150,9 +151,9 @@ return {
 		HitboxSide = 7,         -- 判定盒:左右各
 		HitboxUp = 5,           -- 判定盒:上下各
 		HitboxBack = 2,         -- 判定盒:车后
-		InputBufferSec = 0.1,   -- 斩击判定窗:出刀后此窗内逐帧重试,目标进盒即命中(ADR-16/48;源码默认=旧值,0.25 试玩值走属性层,人类锁定后写回)
-		ParryWindowSec = 0.1,   -- 弹反窗(ADR-48):子弹只在出刀后前段可弹,与斩击窗分离保"贴脸点按"技巧;=InputBufferSec 时与旧单窗行为逐位一致
-		RecoverySec = 0.3,      -- 空挥硬直(ADR-14:失误代价只在错过能量,永不减速)
+		InputBufferSec = 0.1,   -- 判定窗:出刀后窗内逐帧结算,进盒即中、持续可多段(ADR-16/48;设计关系≈RecoverySec 的 80%;源码默认=旧值,0.25 试玩值走属性层,锁定后写回)
+		ParryWindowSec = 0,     -- 独立弹反窗应急开关(ADR-48):0=不区分(弹反与斩击同窗,人类拍板 2026-07-16);>0=子弹只在出刀后前段可弹(若试玩发现弹反白送再启)
+		RecoverySec = 0.3,      -- 攻击间隔=空挥硬直(ADR-14:失误代价只在错过能量,永不减速;判定窗/间隔=连打覆盖率,0.25/0.3≈83%=人类拍板档)
 		TelegraphRangeStuds = 55, -- 目标进入此距离触发音画预告(HUD/音效,非判定)
 		DebugHitbox = true,     -- 【临时调试】斩击判定盒可视化(青=平时/绿=盒内有目标/白=命中帧;正式版前移除)
 		StraightMaxTurnDeg = 3, -- 布置 lint:目标所在点 8studs 转角 < 此值才算直线段
