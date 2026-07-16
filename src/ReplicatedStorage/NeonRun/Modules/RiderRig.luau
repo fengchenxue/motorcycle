@@ -6,7 +6,9 @@
 -- 姿态=Motor6D C0 乘偏移(前倾骑姿;R15 全套/R6 降级基本坐姿);Animate 脚本禁用+停既有动画轨。
 -- 长剑=程序化(刃+霓虹锋+护手+柄,零资产),Motor6D 挂右手;出刀=肩+剑扫掠动画,
 --   时窗同步 Combat_InputBufferSec(与剑光弧同一事实源:扫掠 SlashSweepSec→持窗→收刀回位)。
--- 复活/换角色=CharacterAdded 自动重挂;VFX_RiderEnabled=0 时 TestDrive 走旧"停机坪"路径。
+-- 挂载=step 内自愈轮询(0.5s):未挂→凑齐件即挂;焊断/角色换代→重挂——一次性事件时序(CharacterAdded
+--   与脚本就绪的竞态、Humanoid 晚到)全部免疫(坑 26 思路;2026-07-16 实测首版事件式在 Play 竞态漏挂,已改)。
+-- VFX_RiderEnabled=0 时 TestDrive 走旧"停机坪"路径。
 -- 只写渲染层(关节 C0/焊接),物理零参与;姿态角=首版盲调,观感微调改下方 POSE 表。
 local RS = game:GetService("ReplicatedStorage")
 
@@ -87,20 +89,28 @@ function RiderRig.new(player, bikeModel, attack)
 	self.mounted = nil          -- { char, weld, sword, gripMotor, joints={[Motor6D]=原C0}, conns={} }
 	self.swingT = -1            -- <0=闲;>=0=挥砍进行时
 	self.swingWindow = 0
-	self._charConn = nil
+	self._mountScanT = 0        -- 自愈轮询计时(0=下一步立即检查)
 	if attack then
 		attack:on("swing", function()
 			self.swingT = 0
 			self.swingWindow = self.cfg.get("Combat", "InputBufferSec")
 		end)
 	end
-	if player then
-		if player.Character then self:mount(player.Character) end
-		self._charConn = player.CharacterAdded:Connect(function(char)
-			task.defer(function() self:mount(char) end)   -- 等 HRP/关节就位
-		end)
-	end
 	return self
+end
+
+-- 自愈检查:未挂/焊断/角色换代 → (重)挂;件未凑齐(HRP/Humanoid 晚到)=本轮跳过,下轮再试
+function RiderRig:_ensureMounted()
+	if not self.player then return end
+	local char = self.player.Character
+	local m = self.mounted
+	if m then
+		local stale = m.char ~= char                      -- 角色换代(死亡重生/换装)
+			or not m.char.Parent                          -- 角色已销毁
+			or not m.weld or not m.weld.Parent            -- 焊被外力清除
+		if stale then self:unmount() else return end
+	end
+	if char and char.Parent then self:mount(char) end
 end
 
 -- 全件物性矫正(CanQuery=false 防障碍扫掠误撞;饰品异步到货由 DescendantAdded 兜底)
@@ -118,9 +128,11 @@ end
 function RiderRig:mount(char)
 	if self.mounted and self.mounted.char == char then return end
 	self:unmount()
-	local hrp = char:WaitForChild("HumanoidRootPart", 10)
+	-- 非阻塞取件:未就绪即静默返回,由 step 自愈轮询重试(勿 WaitForChild——挂起会吞掉后续重试)
+	local hrp = char:FindFirstChild("HumanoidRootPart")
 	local humanoid = char:FindFirstChildOfClass("Humanoid")
 	if not hrp or not humanoid then return end
+	print(string.format("[RiderRig] 上车:%s(%s)", char.Name, tostring(humanoid.RigType)))
 	local m = { char = char, joints = {}, conns = {} }
 
 	humanoid.PlatformStand = true                       -- 禁 Humanoid 状态机接管(非载具控制,ADR-1 无涉)
@@ -197,8 +209,13 @@ function RiderRig:unmount()
 	self.swingT = -1
 end
 
--- 每帧:挥砍编排(闲时零写;扫掠→持窗定格→窗尽回位)
+-- 每帧:自愈挂载轮询(0.5s)+ 挥砍编排(闲时零写;扫掠→持窗定格→窗尽回位)
 function RiderRig:step(dt)
+	self._mountScanT -= dt
+	if self._mountScanT <= 0 then
+		self._mountScanT = 0.5
+		self:_ensureMounted()
+	end
 	local m = self.mounted
 	if not m or not m.swingJoint or not m.swingJoint.Parent then return end
 	if self.swingT < 0 then return end
@@ -220,7 +237,6 @@ function RiderRig:step(dt)
 end
 
 function RiderRig:destroy()
-	if self._charConn then self._charConn:Disconnect(); self._charConn = nil end
 	self:unmount()
 end
 
