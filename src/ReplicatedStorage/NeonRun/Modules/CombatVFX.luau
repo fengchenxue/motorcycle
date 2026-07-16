@@ -1,7 +1,7 @@
 -- NeonRun / CombatVFX (表现层) —— 斩击剑光 + 命中爆点 + 弹反闪光 + 敌人装饰 + 子弹拖尾(ADR-50)
 -- 纯程序化(引擎内置贴图/内置音效,零外部资产=V1 灰盒不破);只读物理、只写渲染实例(物理与视觉分离)。
--- 剑光弧=判定窗可视化:出刀扫掠后以低透明度"留在外面",时长=Combat_InputBufferSec(机制与画面同一事实源);
---   命中=白闪(窗不收,可多段);空挥=灰化速灭。反馈永不冻结画面与输入(ADR-20)。
+-- (车前剑痕弧已删=ADR-50f 人类裁决"特效挂在车把上很怪,加到剑上":挥砍可视化=RiderRig 刃尖窄条拖痕;
+--   判定窗的机制提示保留在 HUD 十字 inVolume。反馈永不冻结画面与输入(ADR-20)。)
 -- 敌人装饰=运行时挂在 ShooterEnemy 本体上的视觉子件(轨道卫星+悬浮盘+核心光):
 --   本体判定/物性零改动(子件全 CanQuery/CanCollide/CanTouch=false);充能=转速×4+色带白→红;
 --   死亡=爆点+子件隐藏;复活由轮询 part.Transparency 侦测(R 重开无独立事件)。
@@ -58,26 +58,6 @@ local function mkSound(parent, id)
 	return s
 end
 
--- 剑光弧:车头前一条带弧度的 Beam,两端附件从中心向两侧张开=扫掠
-local function makeArc(rootPart)
-	local a0 = Instance.new("Attachment"); a0.Name = "SlashArcL"; a0.Parent = rootPart
-	local a1 = Instance.new("Attachment"); a1.Name = "SlashArcR"; a1.Parent = rootPart
-	local beam = Instance.new("Beam")
-	beam.Name = "SlashArc"
-	beam.Attachment0 = a0
-	beam.Attachment1 = a1
-	beam.FaceCamera = true
-	beam.LightEmission = 1
-	beam.LightInfluence = 0
-	beam.Color = ColorSequence.new(ARC_COLOR)
-	beam.Transparency = NumberSequence.new(1)
-	beam.Width0 = 0.3; beam.Width1 = 0.3           -- 细刃痕(ADR-50e 人类裁决:粗带挡视野→飘逸细痕)
-	beam.CurveSize0 = -5.5; beam.CurveSize1 = -5.5 -- 朝车前拱出新月弧(加深=更飘)
-	beam.Enabled = true                           -- 常开,可见性走透明度(BikeVFX 同法)
-	beam.Parent = rootPart
-	return { a0 = a0, a1 = a1, beam = beam }
-end
-
 -- 命中爆点发射器模板(挂到一次性爆点件上)
 local function mkBurstEmitter(parent, color)
 	local emit = Instance.new("ParticleEmitter")
@@ -106,12 +86,6 @@ function CombatVFX.new(model, ctrl, attack, shooters)
 	self.cfg = ConfigLive.bind(nr.Config.Handling, require(nr.Config.Handling))
 	self.ctrl = ctrl
 	self.root = model.PrimaryPart
-	self.arc = makeArc(self.root)
-	self.arcState = "idle"      -- idle|active|fadeHit|fadeWhiff
-	self.arcT = 0               -- 出刀以来时长
-	self.arcWindow = 0          -- 本刀判定窗(出刀帧读定,窗尽转 fade)
-	self.flashT = 0             -- 命中白闪余量
-	self.fadeT = 0              -- fade 态余量
 	self.bursts = {}            -- 一次性爆点件 { part, ttl, light }
 	self.enemyFx = {}           -- [enemyPart] = { sats={}, disc, light, phase, charge, hidden }
 	self.itemFx = {}            -- [itemPart] = { kind="crystal"|"core", shards={}, light, hidden, bobPhase }
@@ -129,13 +103,9 @@ function CombatVFX.new(model, ctrl, attack, shooters)
 	-- 攻击事件(AttackSystem):挥刀/命中/空挥/弹反
 	if attack then
 		attack:on("swing", function()
-			self.arcState = "active"
-			self.arcT = 0
-			self.arcWindow = self.cfg.get("Combat", "InputBufferSec")
 			self:_playSound("swing", self.cfg.get("Sound", "SlashVolume"))
 		end)
 		attack:on("hit", function(e)
-			self.flashT = 0.08
 			self:_playSound("hit", self.cfg.get("Sound", "HitVolume"))
 			for _, part in ipairs(e.parts or {}) do
 				if part:IsA("BasePart") then
@@ -144,14 +114,7 @@ function CombatVFX.new(model, ctrl, attack, shooters)
 				end
 			end
 		end)
-		attack:on("whiff", function()
-			if self.arcState == "active" then
-				self.arcState = "fadeWhiff"
-				self.fadeT = 0.12
-			end
-		end)
 		attack:on("parry", function()
-			self.flashT = 0.1
 			self:_playSound("parry", self.cfg.get("Sound", "ParryVolume"))
 		end)
 	end
@@ -213,7 +176,7 @@ function CombatVFX:_magnetBeam(pos)
 	local p = mkPart("CombatMagnetBeam", Vector3.new(0.2, 0.2, 0.2), ARC_COLOR, 1)
 	p.CFrame = CFrame.new(pos)
 	p.Parent = workspace
-	local a0 = Instance.new("Attachment"); a0.Parent = self.root
+	local a0 = Instance.new("Attachment"); a0.Position = Vector3.new(0.9, 1.2, -2.6); a0.Parent = self.root -- 起点在车头前右(不压车把,ADR-50f)
 	local a1 = Instance.new("Attachment"); a1.Parent = p
 	local beam = Instance.new("Beam")
 	beam.Attachment0 = a0; beam.Attachment1 = a1
@@ -293,48 +256,6 @@ end
 function CombatVFX:step(dt)
 	local C = self.cfg.get
 	self.time += dt
-
-	-- ── 剑光弧状态机 ─────────────────────────────────────────────
-	local arc = self.arc
-	if self.arcState == "active" then
-		self.arcT += dt
-		local sweep = math.max(C("VFX", "SlashSweepSec"), 1e-3)
-		local halfW = C("Combat", "HitboxSide") * C("VFX", "SlashWidthScale")
-		local fwd = -C("Combat", "HitboxForward") * 0.55
-		local k = math.clamp(self.arcT / sweep, 0.12, 1)   -- 中心张开到全宽
-		-- 车前偏剑侧(+X 1.1)生成,微抬(ADR-50e:飘逸剑痕,判定语义不变)
-		arc.a0.Position = Vector3.new(1.1 - halfW * k, 1.0, fwd)
-		arc.a1.Position = Vector3.new(1.1 + halfW * k, 1.0, fwd)
-		local alpha
-		if self.arcT <= sweep then
-			alpha = 1                                       -- 扫掠段全亮
-		else
-			alpha = C("VFX", "SlashHoldAlpha")              -- 持窗段低亮="刀留在外面"
-		end
-		if self.flashT > 0 then
-			alpha = 1
-			arc.beam.Color = ColorSequence.new(ARC_HIT_COLOR)
-		else
-			arc.beam.Color = ColorSequence.new(ARC_COLOR)
-		end
-		arc.beam.Transparency = NumberSequence.new(1 - alpha)
-		if self.arcT >= self.arcWindow then                 -- 窗尽(命中与否都收刀)
-			self.arcState = "fadeHit"
-			self.fadeT = 0.1
-		end
-	elseif self.arcState == "fadeHit" or self.arcState == "fadeWhiff" then
-		self.fadeT -= dt
-		if self.arcState == "fadeWhiff" then
-			arc.beam.Color = ColorSequence.new(ARC_WHIFF_COLOR)
-		end
-		local a = math.max(self.fadeT, 0) / 0.12
-		arc.beam.Transparency = NumberSequence.new(1 - a * C("VFX", "SlashHoldAlpha"))
-		if self.fadeT <= 0 then
-			self.arcState = "idle"
-			arc.beam.Transparency = NumberSequence.new(1)
-		end
-	end
-	if self.flashT > 0 then self.flashT = math.max(0, self.flashT - dt) end
 
 	-- ── 一次性爆点/磁吸光带清理 ──────────────────────────────────
 	for i = #self.bursts, 1, -1 do
@@ -481,10 +402,6 @@ function CombatVFX:destroy()
 		if fx.light then fx.light:Destroy() end
 	end
 	self.itemFx = {}
-	if self.arc then
-		self.arc.beam:Destroy(); self.arc.a0:Destroy(); self.arc.a1:Destroy()
-		self.arc = nil
-	end
 	for _, s in pairs(self.sounds) do s:Destroy() end
 	self.sounds = {}
 end

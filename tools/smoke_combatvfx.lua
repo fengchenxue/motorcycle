@@ -1,9 +1,8 @@
 --[[
 NEON RUN — 战斗/拾取/冲刺表现层冒烟(ADR-50/50a;Edit 固定 dt=1/60)
 断言组:
-  ① 剑光弧生命周期:出刀即亮(扫掠段 alpha=1)→持窗低亮→窗尽(0.25s)收刀→idle 全透明
+  ① 车前剑痕弧已删(ADR-50f):零实例断言(剑痕=RiderRig 刃尖拖痕)
   ② 命中演出:进盒命中 → 爆点件+磁吸光带各 1 → ttl 到期自动销毁零残留
-  ③ 空挥:全窗零命中 → 弧收刀灰化回 idle
   ④ 敌人装饰:tag 即挂(卫星×3+盘+光);不重挂;挂时已死=隐;复活侦测重现;销毁清表
   ⑤ 子弹装饰:入夹即挂 Trail+光;不重挂
   ⑥ 水晶装饰(ADR-50a):挂碎晶×2+光;隐没沿=拾取爆点+装饰隐;复现重亮
@@ -40,7 +39,7 @@ local PIN = {
 	Combat_InputBufferSec = 0.25, Combat_ParryWindowSec = 0, Combat_RecoverySec = 0.3,
 	Combat_TelegraphRangeStuds = 55, Combat_ShooterRangeStuds = 170, Combat_ShooterTelegraphSec = 0.45,
 	Combat_ShooterFireIntervalSec = 1.8, Combat_BulletSpeed = 150, Combat_BulletLifeSec = 4,
-	VFX_SlashSweepSec = 0.12, VFX_SlashHoldAlpha = 0.4, VFX_SlashWidthScale = 1,
+	VFX_SlashSweepSec = 0.12,
 	VFX_HitBurstParticles = 24, VFX_HitLightBrightness = 8, VFX_MagnetBeamSec = 0.12,
 	VFX_EnemySatSpinDeg = 90, VFX_EnemyBobStuds = 0.6, VFX_BulletTrailSec = 0.22,
 	VFX_CrystalSpinDeg = 160, VFX_CoreSpinDeg = 60, VFX_ItemBobStuds = 0.35,
@@ -88,9 +87,6 @@ function shooterStub:on() end
 local atk = AttackSystem.new(ctrl, nil, nil)
 local cvfx = CombatVFX.new(bikeModel, ctrl, atk, shooterStub)
 
-local function beamAlpha()
-	return 1 - cvfx.arc.beam.Transparency.Keypoints[1].Value
-end
 local function census(name)
 	local n = 0
 	for _, d in ipairs(workspace:GetDescendants()) do
@@ -104,18 +100,16 @@ local function fxCount(p, nm)
 	return n
 end
 
--- ① 剑光弧生命周期
+-- ① 车前剑痕弧已删(ADR-50f:剑痕挂剑上=RiderRig SwordStreak;判定提示=HUD 十字)
 do
 	atk:attack()
 	cvfx:step(DT)
-	ok("①a 出刀即亮(扫掠段 alpha=1)", math.abs(beamAlpha() - 1) < 1e-3 and cvfx.arcState == "active", beamAlpha())
-	for _ = 2, 10 do atk:step(DT); cvfx:step(DT) end
-	ok("①b 持窗段低亮(=HoldAlpha 0.4)", math.abs(beamAlpha() - 0.4) < 1e-3, beamAlpha())
-	for _ = 11, 17 do atk:step(DT); cvfx:step(DT) end
-	ok("①c 窗尽收刀(fade/idle)", cvfx.arcState ~= "active", cvfx.arcState)
-	for _ = 18, 30 do atk:step(DT); cvfx:step(DT) end
-	ok("①d 收刀后全透明回 idle", cvfx.arcState == "idle" and beamAlpha() < 1e-3, cvfx.arcState .. "/" .. tostring(beamAlpha()))
-	for _ = 31, 40 do atk:step(DT) end
+	local resid = 0
+	for _, d in ipairs(bikeModel:GetDescendants()) do
+		if d.Name == "SlashArc" or d.Name == "SlashArcL" or d.Name == "SlashArcR" then resid += 1 end
+	end
+	ok("① 前弧零实例(挥刀后亦无)", resid == 0 and cvfx.arc == nil, resid)
+	for _ = 1, 40 do atk:step(DT); cvfx:step(DT) end
 end
 
 -- ② 命中演出
@@ -132,16 +126,6 @@ do
 		census("CombatHitBurst") .. "/" .. census("CombatMagnetBeam") .. "/" .. #cvfx.bursts)
 	atk:unregisterTarget(t); t:Destroy()
 	for _ = 1, 20 do atk:step(DT) end
-end
-
--- ③ 空挥
-do
-	atk:attack()
-	for _ = 1, 17 do atk:step(DT); cvfx:step(DT) end
-	ok("③a 空挥收刀(不再 active)", cvfx.arcState ~= "active", cvfx.arcState)
-	for _ = 18, 30 do atk:step(DT); cvfx:step(DT) end
-	ok("③b 灰化后回 idle 全透明", cvfx.arcState == "idle" and beamAlpha() < 1e-3, cvfx.arcState)
-	for _ = 31, 45 do atk:step(DT) end
 end
 
 -- ④ 敌人装饰

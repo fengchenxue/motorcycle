@@ -151,9 +151,7 @@ return {
 		SpeedLineParticleRate = 80, -- 风粒子每秒条数(0=只留 Beam 层)
 		SpeedLineParticleSpeed = 90,-- 风粒子飞行速度(studs/s,由前方朝镜头掠过)
 		-- 战斗表现层(CombatVFX,ADR-50):程序化零资产;剑光=判定窗可视化(时长自动=Combat_InputBufferSec)
-		SlashSweepSec = 0.12,       -- 剑光扫掠段时长(全亮;之后转持窗低亮)
-		SlashHoldAlpha = 0.4,       -- 持窗段可见度 0~1("刀留在外面"的存在感;0=只闪不留)
-		SlashWidthScale = 1.0,      -- 弧宽=HitboxSide×2×此值(纯视觉,不改判定)
+		SlashSweepSec = 0.12,       -- 挥砍横扫段时长(RiderRig 动作编排;车前剑痕弧已删=ADR-50f)
 		HitBurstParticles = 24,     -- 命中爆点碎片数(0=关爆点与爆光)
 		HitLightBrightness = 8,     -- 命中爆点光强(0.5s 内衰减归零)
 		MagnetBeamSec = 0.12,       -- 视觉磁吸:剑光向命中目标甩出的光带存续(0=关;物理零参与)
@@ -165,6 +163,7 @@ return {
 		CoreSpinDeg = 60,           -- 能量核卫星角速度(度/s;0=静态)
 		ItemBobStuds = 0.35,        -- 拾取物装饰悬浮起伏幅度
 		RiderEnabled = 1,           -- 骑手上车(ADR-50b):玩家 avatar 骑车+长剑;0=回旧停机坪(重进 Play 生效)
+		SwordStreakSec = 0.35,      -- 刃尖窄条拖痕存续(ADR-50f:剑痕挂剑上,挥砍期随刃尖划弧;0=关)
 		SprintJetRate = 90,         -- 冲刺尾焰粒子率(0=关;心流自动 ×1.4+变金)
 		SprintWakeSec = 0.3,        -- 冲刺地面尾迹存续(0=关;心流变金)
 	},
