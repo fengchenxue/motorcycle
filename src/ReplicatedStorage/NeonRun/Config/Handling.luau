@@ -47,8 +47,9 @@ return {
 		FlowDistance = 12,      -- M3 心流档预留:近肩距离
 		-- GR2 手感包(ADR-44,2026-07-15 拍板):六特性默认=旧行为逐位不变(0=关);
 		-- 定值待人类 Play 试玩(预设切换=tools/preset_feel.lua,微调=TunePanel/属性面板)
-		SteerRollGain = 0,      -- ①转弯相机侧倾:up 绕视线轴滚 visualRoll×此值(0=关;试 0.35;负值=反向)
-		SteerRollMaxDeg = 10,   -- ①侧倾上限(度)
+		SteerRollGain = 0,      -- ①转弯相机侧倾:up 绕视线轴滚 visualRoll×此值(0=关;试 0.10~0.15——人类首轮反馈:GR2 倾斜十分克制;负值=反向)
+		SteerRollMaxDeg = 10,   -- ①侧倾上限(度;克制档建议 4)
+		SteerRollLerpSec = 0,   -- ①b 侧倾低通:>0=镜头侧倾慢进慢出、吃掉车倾弹簧过冲(0=直通;试 0.15)
 		FOVSpeedGain = 0,       -- ②连续速度 FOV:每 stud/s 相对 Speed_Base 的度数增减(0=关;试 0.08)
 		FOVPunchDeg = 0,        -- ③点火冲拳:冲刺上升沿 FOV 额外冲高(0=关;试 5)
 		FOVPunchDecaySec = 0.35,-- ③冲拳线性回落时长
@@ -57,6 +58,7 @@ return {
 		ShakeSpeedGain = 0,     -- ⑤速度比例震动:幅度 += 此值×(速度/Speed_Base)(0=关=纯冲刺开关式)
 		AirPitchDownDeg = 0,    -- ⑥下坠俯视:滞空下落看点下移角(0=关;试 4)
 		AirPitchLerpSec = 0.25, -- ⑥俯视进出平滑时长
+		LatLagSec = 0,          -- ⑦横向独立插值:>0=相机水平横向分量单独低通(车在画面里横移、缓缓回中;0=关;试 0.22——人类首轮反馈:GR2 左右移动有插值平滑)
 	},
 	Ground = {
 		HoverHeight = 1.6,

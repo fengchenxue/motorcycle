@@ -33,6 +33,8 @@ local PARAMS = {
 	-- ADR-44 GR2 手感包(默认 0=关,拖离 0 即生效;SteerRollGain 负值=反向侧倾)
 	{ "Camera", "SteerRollGain", -1, 1, 2 },
 	{ "Camera", "SteerRollMaxDeg", 0, 25, 0 },
+	{ "Camera", "SteerRollLerpSec", 0, 0.60, 2 },
+	{ "Camera", "LatLagSec", 0, 0.60, 2 },
 	{ "Camera", "FOVSpeedGain", 0, 0.30, 2 },
 	{ "Camera", "FOVPunchDeg", 0, 12, 0 },
 	{ "Camera", "FOVPunchDecaySec", 0.10, 0.80, 2 },

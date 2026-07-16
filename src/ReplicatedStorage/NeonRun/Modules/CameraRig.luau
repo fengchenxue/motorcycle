@@ -2,9 +2,10 @@
 -- 位置弹簧滞后(FollowLagSec)/朝向低通慢半拍(YawLagSec)/冲刺 FOV 推进/冲刺震动/撞墙回退。
 -- M6.5:up 向量参数化(E4-3)——墙态 up 平滑滚向墙法线(roll≤90°,WallRide_CamRollSec),FOV 不变;
 --       地面 up 恒为世界 Y,数值逐位不变。
--- ADR-44 GR2 手感包:六个表现特性全走 Config 新键,默认值(0=关)下输出逐位=旧行为:
---   ①转弯相机侧倾 SteerRollGain ②连续速度 FOV FOVSpeedGain ③点火 FOV 冲拳 FOVPunchDeg
+-- ADR-44 GR2 手感包:表现特性全走 Config 新键,默认值(0=关)下输出逐位=旧行为:
+--   ①转弯相机侧倾 SteerRollGain(①b 低通 SteerRollLerpSec)②连续速度 FOV FOVSpeedGain ③点火 FOV 冲拳 FOVPunchDeg
 --   ④落地相机下沉 LandDipPerVy(弹簧复用 Lean_Suspension*)⑤速度比例震动 ShakeSpeedGain ⑥下坠俯视 AirPitchDownDeg
+--   ⑦横向独立插值 LatLagSec(人类首轮反馈 2026-07-15:GR2=横向移动插值平滑+倾斜十分克制)
 -- 只读 ctrl 状态,不写任何物理。camera 可传任意 Camera 实例(便于 Edit 仿真验收)。
 local RS = game:GetService("ReplicatedStorage")
 
@@ -48,6 +49,7 @@ function CameraRig:snap()
 	self.dipY, self.dipVel = 0, 0  -- ④落地下沉弹簧(相机系)
 	self.airPitch = 0           -- ⑥下坠俯视当前角
 	self.prevGroundedCam = true -- ④落地上升沿检测
+	self.camRollSm = 0          -- ①b 侧倾低通状态(SteerRollLerpSec;人类首轮反馈:倾斜要克制)
 	local target = self.ctrl.physPos
 	self.camPos = target - look * C("Camera", "Distance") + Vector3.new(0, C("Camera", "Height"), 0)
 	if self.camera then
@@ -87,16 +89,39 @@ function CameraRig:update(dt)
 	if rollGain ~= 0 and not tele.wallRiding then
 		local maxDeg = C("Camera", "SteerRollMaxDeg") or 0
 		local camRoll = math.clamp((tele.roll or 0) * rollGain, -maxDeg, maxDeg)
+		-- ①b 侧倾低通(人类首轮反馈 2026-07-15:GR2 倾斜十分克制):>0=慢进慢出、吃掉车倾弹簧的过冲;0=直通
+		local rollSec = C("Camera", "SteerRollLerpSec") or 0
+		if rollSec > 0 then
+			self.camRollSm += (camRoll - self.camRollSm) * (1 - math.exp(-dt / rollSec))
+			camRoll = self.camRollSm
+		else
+			self.camRollSm = camRoll
+		end
 		if math.abs(camRoll) > 1e-4 then
 			rolledUp = (CFrame.fromAxisAngle(sl, -math.rad(camRoll)) * up).Unit
 		end
+	else
+		self.camRollSm = 0
 	end
 
 	-- 位置弹簧滞后(心流档拉近至 FlowDistance);高度偏移沿 up(地面=世界 Y,逐位不变)
+	-- ⑦横向独立插值(人类首轮反馈 2026-07-15:GR2 左右移动有插值平滑):LatLagSec>0 时
+	-- 水平横向分量单独低通(比 FollowLag 软)→ 转向/变线时车在画面里横移、镜头缓缓回中;
+	-- 0=关=整体 lerp 旧行为逐位不变;墙态不拆(墙上"横向"≠屏幕横向,走旧路径)
 	local dist = self.flow and C("Camera", "FlowDistance") or C("Camera", "Distance")
 	local desired = target - sl * dist + rolledUp * C("Camera", "Height")
 	local posAlpha = 1 - math.exp(-dt / math.max(C("Camera", "FollowLagSec"), 1e-3))
-	self.camPos = self.camPos:Lerp(desired, posAlpha)
+	local latSec = C("Camera", "LatLagSec") or 0
+	local latDir = sl:Cross(Vector3.yAxis)
+	if latSec > 0 and not tele.wallRiding and latDir.Magnitude > 1e-4 then
+		latDir = latDir.Unit
+		local delta = desired - self.camPos
+		local lat = delta:Dot(latDir)
+		self.camPos += (delta - latDir * lat) * posAlpha
+			+ latDir * (lat * (1 - math.exp(-dt / latSec)))
+	else
+		self.camPos = self.camPos:Lerp(desired, posAlpha)
+	end
 
 	-- 撞墙回退:从看点向相机射线,命中则拉到墙内侧(验收项:任何情况不穿墙)
 	local anchor = target + rolledUp * 2
