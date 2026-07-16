@@ -12,7 +12,7 @@
 --   local field = ShooterField.new(ctrl, attack, energy)   -- attack=AttackSystem;energy=EnergyState(弹反击杀入账用)
 --   field:step(dt)                                 -- 每帧(ctrl:step 后、attack:step 前)
 --   field:reset()                                  -- R 重开:复活敌人/清空子弹/归零节拍
---   field:on("fired"|"playerHit"|"enemyKilled", fn)
+--   field:on("fired"|"playerHit"|"enemyKilled"|"telegraph", fn)
 --   field:getTelemetry()                           -- { alive, bullets, incomingDist }
 local RS = game:GetService("ReplicatedStorage")
 local CS = game:GetService("CollectionService")
@@ -35,7 +35,7 @@ function ShooterField.new(ctrl, attack, energy)
 	self.energy = energy
 	self.enemies = {}          -- [part] = { alive, phase = "idle"|"telegraph"|"cooldown", t, baseColor, baseTransparency }
 	self.bullets = {}          -- array of { part, vel, life, parried, shooterPart }
-	self._events = { fired = {}, playerHit = {}, enemyKilled = {} }
+	self._events = { fired = {}, playerHit = {}, enemyKilled = {}, telegraph = {} }
 	self._conns = {}
 	-- 子弹容器(运行期临时物,Edit 仿真后须清理)
 	self.folder = Instance.new("Folder")
@@ -191,7 +191,8 @@ function ShooterField:step(dt)
 				if not respawning and rel.Magnitude <= C("Combat", "ShooterRangeStuds") and rel:Dot(look) > 0 then
 					e.phase = "telegraph"
 					e.t = C("Combat", "ShooterTelegraphSec")
-					part.Color = TELEGRAPH_COLOR   -- 充能预告(灰盒:变白;正式 VFX 后补)
+					part.Color = TELEGRAPH_COLOR   -- 充能预告(变白;强化演出由 CombatVFX 订阅 telegraph 事件,ADR-50)
+					self:_fire("telegraph", { part = part })
 				end
 			elseif e.phase == "telegraph" then
 				e.t -= dt

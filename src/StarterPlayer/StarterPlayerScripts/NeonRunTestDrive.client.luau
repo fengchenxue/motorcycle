@@ -19,6 +19,7 @@ local AttackSystem = require(mods:WaitForChild("AttackSystem"))
 local RaceTimer = require(mods:WaitForChild("RaceTimer"))
 local ShooterField = require(mods:WaitForChild("ShooterField"))
 local BikeVFX = require(mods:WaitForChild("BikeVFX"))
+local CombatVFX = require(mods:WaitForChild("CombatVFX"))
 local WallRideField = require(mods:WaitForChild("WallRideField"))
 local FixedStep = require(mods:WaitForChild("FixedStep"))
 local RespawnAnchors = require(mods:WaitForChild("RespawnAnchors"))
@@ -197,6 +198,8 @@ local attack = AttackSystem.new(ctrl, energy, spline)
 
 -- 远程敌与快照子弹(ADR-21/22):射手本体/子弹经 AttackSystem 注册,弹反=改写目标为射手
 local shooters = ShooterField.new(ctrl, attack, energy)
+-- 战斗表现层(ADR-50):剑光(=判定窗可视化)/命中爆点/弹反闪/敌人装饰/子弹拖尾/战斗音
+local cvfx = CombatVFX.new(bike, ctrl, attack, shooters)
 shooters:on("playerHit", function()
 	crashFlash.BackgroundColor3 = Color3.fromRGB(255, 60, 110)
 	crashFlash.BackgroundTransparency = 0.55
@@ -263,6 +266,44 @@ local retParts = { retTop, retBot, retL, retR }
 local attackFlash = 0
 attack:on("hit", function() attackFlash = 1 end)
 attack:on("whiff", function() attackFlash = -1 end)
+
+-- 命中飘字(ADR-50 表现层):+能量合计/多杀 ×N/弹反击杀;0.6s 上浮淡出
+local hitPop = Instance.new("TextLabel")
+hitPop.AnchorPoint = Vector2.new(0.5, 1)
+hitPop.Position = UDim2.new(0.5, 0, 0.40, 0)
+hitPop.Size = UDim2.new(0, 240, 0, 30)
+hitPop.BackgroundTransparency = 1
+hitPop.Font = Enum.Font.GothamBlack
+hitPop.TextSize = 22
+hitPop.TextColor3 = Color3.fromRGB(60, 255, 140)
+hitPop.TextStrokeTransparency = 0.4
+hitPop.Text = ""
+hitPop.TextTransparency = 1
+hitPop.Parent = gui
+local hitPopT = 0
+local KIND_GAIN = { core = 25, gate = 15, slash = 30 }   -- 显示用;数字权威在 EnergyState
+attack:on("hit", function(e)
+	local sum, hasParry = 0, false
+	for _, k in ipairs(e.kinds or {}) do
+		sum += KIND_GAIN[k] or 0
+		if k == "parry" then hasParry = true end
+	end
+	local txt
+	if sum > 0 then txt = "+" .. sum
+	elseif hasParry then txt = "弹反!"
+	else txt = "斩!" end
+	if (e.count or 1) > 1 then txt = txt .. " ×" .. e.count end
+	hitPop.Text = txt
+	hitPop.TextColor3 = Color3.fromRGB(60, 255, 140)
+	hitPopT = 1
+end)
+shooters:on("enemyKilled", function(e)
+	if e.cause == "parryReturn" then
+		hitPop.Text = "弹反击杀 +25"
+		hitPop.TextColor3 = Color3.fromRGB(60, 255, 180)
+		hitPopT = 1
+	end
+end)
 
 -- M8 计时 HUD:顶部中央秒表 + 检查点进度
 local timerLabel = Instance.new("TextLabel")
@@ -503,6 +544,7 @@ RunS.Heartbeat:Connect(function(dt)
 	local rt = timer:getTelemetry()
 	audio:update(t, dt)
 	vfx:step(dt)
+	cvfx:step(dt)
 	-- M8 计时/倒计时 HUD
 	if rt.state == "countdown" then
 		countdownLabel.Text = rt.countdown and tostring(rt.countdown) or ""
@@ -633,6 +675,12 @@ RunS.RenderStepped:Connect(function(dt)
 	end
 	if attackFlash > 0 then attackFlash = math.max(0, attackFlash - dt * 3)
 	elseif attackFlash < 0 then attackFlash = math.min(0, attackFlash + dt * 3) end
+	-- 命中飘字上浮淡出
+	if hitPopT > 0 then
+		hitPopT = math.max(0, hitPopT - dt * 1.6)
+		hitPop.TextTransparency = 1 - math.min(hitPopT * 3, 1)
+		hitPop.Position = UDim2.new(0.5, 0, 0.40 - (1 - hitPopT) * 0.05, 0)
+	end
 	local sprintOn = t.sprinting and t.speed > 100
 	for i, f in ipairs(lines) do
 		local target = sprintOn and (0.45 + 0.35 * math.abs(math.noise(clock * 9, i * 2.7))) or 1

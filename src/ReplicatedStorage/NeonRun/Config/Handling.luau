@@ -133,6 +133,10 @@ return {
 		IgnitionVolume = 0.6,
 		WhooshVolume = 0.7,     -- 擦墙呼啸
 		WhooshCooldownSec = 0.8,
+		-- 战斗音(CombatVFX,ADR-50;占位=引擎内置音,正式素材=官方音频库替换,0=静)
+		SlashVolume = 0.6,      -- 挥刀 whoosh(内置 swordslash)
+		HitVolume = 0.7,        -- 命中斩(内置 swordlunge)
+		ParryVolume = 0.8,      -- 弹反叮(内置 electronicping)
 	},
 	VFX = {
 		-- 冲刺速度线(BikeVFX 表现层):相机空间放射线,tele.sprinting 淡入淡出,贴图由远及近流动
@@ -144,6 +148,16 @@ return {
 		SpeedLineWidth = 1.2,       -- 线宽(studs,离镜头 6~30 studs 处的观感宽度)
 		SpeedLineParticleRate = 80, -- 风粒子每秒条数(0=只留 Beam 层)
 		SpeedLineParticleSpeed = 90,-- 风粒子飞行速度(studs/s,由前方朝镜头掠过)
+		-- 战斗表现层(CombatVFX,ADR-50):程序化零资产;剑光=判定窗可视化(时长自动=Combat_InputBufferSec)
+		SlashSweepSec = 0.12,       -- 剑光扫掠段时长(全亮;之后转持窗低亮)
+		SlashHoldAlpha = 0.4,       -- 持窗段可见度 0~1("刀留在外面"的存在感;0=只闪不留)
+		SlashWidthScale = 1.0,      -- 弧宽=HitboxSide×2×此值(纯视觉,不改判定)
+		HitBurstParticles = 24,     -- 命中爆点碎片数(0=关爆点与爆光)
+		HitLightBrightness = 8,     -- 命中爆点光强(0.5s 内衰减归零)
+		MagnetBeamSec = 0.12,       -- 视觉磁吸:剑光向命中目标甩出的光带存续(0=关;物理零参与)
+		EnemySatSpinDeg = 90,       -- 敌人轨道卫星角速度(度/s;充能期 ×4)
+		EnemyBobStuds = 0.6,        -- 敌人装饰悬浮起伏幅度(本体判定位置不动,纯视觉)
+		BulletTrailSec = 0.22,      -- 子弹拖尾存续(颜色自动跟弹体,弹反变青同步)
 	},
 	Combat = {
 		-- 斩击判定(ADR-16):按键帧对注册目标做车体局部空间盒查询,禁 Touched
