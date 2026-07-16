@@ -111,13 +111,6 @@ function CameraRig:update(dt)
 	local dist = self.flow and C("Camera", "FlowDistance") or C("Camera", "Distance")
 	local latDir = sl:Cross(Vector3.yAxis)
 	local desired = target - sl * dist + rolledUp * C("Camera", "Height")
-	-- ADR-44⑧ 转向横移方向(人类四轮之问"镜头平移同向还是反向"):
-	-- 正=镜头向转弯方向领先(车偏画面外侧、看穿弯内);负=反向加强"车冲向弯内";0=关=纯滞后语义(现状)。
-	-- 用渐变后 steer,再经 FollowLag/LatLag 二次平滑,无需新时间常数。
-	local lead = C("Camera", "SteerLeadStuds") or 0
-	if lead ~= 0 and not tele.wallRiding and latDir.Magnitude > 1e-4 then
-		desired += latDir.Unit * (-(tele.steer or 0) * lead)
-	end
 	local posAlpha = 1 - math.exp(-dt / math.max(C("Camera", "FollowLagSec"), 1e-3))
 	local latSec = C("Camera", "LatLagSec") or 0
 	if latSec > 0 and not tele.wallRiding and latDir.Magnitude > 1e-4 then
@@ -190,6 +183,15 @@ function CameraRig:update(dt)
 	local lookAt = target + sl * C("Camera", "LookAhead") + rolledUp * C("Camera", "LookUp")
 	if self.airPitch > 1e-3 then
 		lookAt -= rolledUp * (math.tan(math.rad(self.airPitch)) * C("Camera", "LookAhead"))
+	end
+	-- ADR-44⑧ 转向横移(v2 修:纯平移——机位与看点**同量**偏移,视轴方向不变;
+	-- v1 只偏机位不偏看点,实测观感="转弯时的朝向"而非平移,人类打回)。
+	-- 正=镜头向转弯方向领先(车偏画面外、看穿弯内);负=反向;0=关。平滑=steer 渐变自身(InputRamp)。
+	local lead = C("Camera", "SteerLeadStuds") or 0
+	if lead ~= 0 and not tele.wallRiding and latDir.Magnitude > 1e-4 then
+		local leadOff = latDir.Unit * (-(tele.steer or 0) * lead)
+		camPos += leadOff
+		lookAt += leadOff
 	end
 	self.lastCamPos = camPos
 	self.lastLookAt = lookAt
