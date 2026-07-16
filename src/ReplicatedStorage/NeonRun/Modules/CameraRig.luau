@@ -1,7 +1,10 @@
--- NeonRun / CameraRig (M3 + M6.5) —— 追逐相机
+-- NeonRun / CameraRig (M3 + M6.5 + ADR-44) —— 追逐相机
 -- 位置弹簧滞后(FollowLagSec)/朝向低通慢半拍(YawLagSec)/冲刺 FOV 推进/冲刺震动/撞墙回退。
 -- M6.5:up 向量参数化(E4-3)——墙态 up 平滑滚向墙法线(roll≤90°,WallRide_CamRollSec),FOV 不变;
 --       地面 up 恒为世界 Y,数值逐位不变。
+-- ADR-44 GR2 手感包:六个表现特性全走 Config 新键,默认值(0=关)下输出逐位=旧行为:
+--   ①转弯相机侧倾 SteerRollGain ②连续速度 FOV FOVSpeedGain ③点火 FOV 冲拳 FOVPunchDeg
+--   ④落地相机下沉 LandDipPerVy(弹簧复用 Lean_Suspension*)⑤速度比例震动 ShakeSpeedGain ⑥下坠俯视 AirPitchDownDeg
 -- 只读 ctrl 状态,不写任何物理。camera 可传任意 Camera 实例(便于 Edit 仿真验收)。
 local RS = game:GetService("ReplicatedStorage")
 
@@ -39,6 +42,12 @@ function CameraRig:snap()
 	local look = self:_bikeLook()
 	self.smoothLook = look
 	self.upVec = Vector3.yAxis  -- M6.5:up 状态复位(重生/重开即刻回正)
+	-- ADR-44 状态复位(默认键值下全程保持零,不改任何输出)
+	self.fovPunchT = 0          -- ③点火冲拳剩余时长
+	self.prevSprint = false     -- ③冲刺上升沿检测
+	self.dipY, self.dipVel = 0, 0  -- ④落地下沉弹簧(相机系)
+	self.airPitch = 0           -- ⑥下坠俯视当前角
+	self.prevGroundedCam = true -- ④落地上升沿检测
 	local target = self.ctrl.physPos
 	self.camPos = target - look * C("Camera", "Distance") + Vector3.new(0, C("Camera", "Height"), 0)
 	if self.camera then
@@ -71,14 +80,26 @@ function CameraRig:update(dt)
 	if sl.Magnitude < 1e-3 then sl = look else sl = sl.Unit end
 	self.smoothLook = sl
 
+	-- ADR-44①转弯相机侧倾:地面态把 up 绕视线轴滚 visualRoll×Gain(墙态不叠,墙有自己的 roll 语义)。
+	-- rolledUp 只用于本帧取景;self.upVec 存未滚的 up,侧倾不跨帧累积。Gain=0 → rolledUp==up=旧行为。
+	local rolledUp = up
+	local rollGain = C("Camera", "SteerRollGain") or 0
+	if rollGain ~= 0 and not tele.wallRiding then
+		local maxDeg = C("Camera", "SteerRollMaxDeg") or 0
+		local camRoll = math.clamp((tele.roll or 0) * rollGain, -maxDeg, maxDeg)
+		if math.abs(camRoll) > 1e-4 then
+			rolledUp = (CFrame.fromAxisAngle(sl, -math.rad(camRoll)) * up).Unit
+		end
+	end
+
 	-- 位置弹簧滞后(心流档拉近至 FlowDistance);高度偏移沿 up(地面=世界 Y,逐位不变)
 	local dist = self.flow and C("Camera", "FlowDistance") or C("Camera", "Distance")
-	local desired = target - sl * dist + up * C("Camera", "Height")
+	local desired = target - sl * dist + rolledUp * C("Camera", "Height")
 	local posAlpha = 1 - math.exp(-dt / math.max(C("Camera", "FollowLagSec"), 1e-3))
 	self.camPos = self.camPos:Lerp(desired, posAlpha)
 
 	-- 撞墙回退:从看点向相机射线,命中则拉到墙内侧(验收项:任何情况不穿墙)
-	local anchor = target + up * 2
+	local anchor = target + rolledUp * 2
 	local camPos = self.camPos
 	local off = camPos - anchor
 	local dist = off.Magnitude
@@ -89,25 +110,80 @@ function CameraRig:update(dt)
 		end
 	end
 
-	-- 冲刺震动(平滑噪声,不打断跟随)
-	if tele.sprinting and tele.grounded then  -- sprinting=有效冲刺(含最小点火尾段),松键不闪 FOV/震动(ADR-13)
-		local a = C("Camera", "ShakeSprint")
+	-- 冲刺震动(平滑噪声,不打断跟随)+ ADR-44⑤速度比例震动(巡航微颤→心流最烈;Gain=0=纯开关式)
+	local shakeAmp = 0
+	if tele.grounded then  -- sprinting=有效冲刺(含最小点火尾段),松键不闪 FOV/震动(ADR-13)
+		if tele.sprinting then shakeAmp += C("Camera", "ShakeSprint") end
+		local sGain = C("Camera", "ShakeSpeedGain") or 0
+		if sGain > 0 then
+			shakeAmp += sGain * tele.speed / math.max(C("Speed", "Base"), 1e-3)
+		end
+	end
+	if shakeAmp > 0 then
 		local f = C("Camera", "ShakeFreqHz")
 		camPos += Vector3.new(
-			math.noise(self.t * f, 0.7) * a,
-			math.noise(3.1, self.t * f) * a,
+			math.noise(self.t * f, 0.7) * shakeAmp,
+			math.noise(3.1, self.t * f) * shakeAmp,
 			0)
 	end
 
+	-- ADR-44④落地相机下沉:重落地镜头随 |落地vy| 下沉再弹回(与车体悬挂同一组弹簧参数,律动一致)
+	local dipPerVy = C("Camera", "LandDipPerVy") or 0
+	if dipPerVy > 0 and tele.grounded and not self.prevGroundedCam then
+		local dip = math.min(math.abs(ctrl.lastLandVy or 0) * dipPerVy, C("Camera", "LandDipMax") or 0)
+		if dip > 0 then
+			self.dipY = -dip
+			self.dipVel = 0
+		end
+	end
+	self.prevGroundedCam = tele.grounded
+	if self.dipY ~= 0 or self.dipVel ~= 0 then
+		local sw = 2 * math.pi * math.max(C("Lean", "SuspensionFreqHz"), 0.1)
+		local sz = C("Lean", "SuspensionDamping")
+		self.dipVel += ((0 - self.dipY) * sw * sw - 2 * sz * sw * self.dipVel) * dt
+		self.dipY += self.dipVel * dt
+		if math.abs(self.dipY) < 1e-4 and math.abs(self.dipVel) < 1e-4 then
+			self.dipY, self.dipVel = 0, 0
+		end
+		camPos += rolledUp * self.dipY
+	end
+
+	-- ADR-44⑥下坠俯视:滞空下落时看点沿 up 下移(找落点),落地/上升/墙态平滑回正。Deg=0=关。
+	local apDeg = C("Camera", "AirPitchDownDeg") or 0
+	local apTarget = (apDeg > 0 and not tele.grounded and not tele.wallRiding and (tele.vy or 0) < 0) and apDeg or 0
+	local apAlpha = 1 - math.exp(-dt / math.max(C("Camera", "AirPitchLerpSec") or 0.25, 1e-3))
+	self.airPitch += (apTarget - self.airPitch) * apAlpha
+
 	-- 看向点:车前方(带前移与抬高,抬高沿 up)
-	local lookAt = target + sl * C("Camera", "LookAhead") + up * C("Camera", "LookUp")
+	local lookAt = target + sl * C("Camera", "LookAhead") + rolledUp * C("Camera", "LookUp")
+	if self.airPitch > 1e-3 then
+		lookAt -= rolledUp * (math.tan(math.rad(self.airPitch)) * C("Camera", "LookAhead"))
+	end
 	self.lastCamPos = camPos
 	self.lastLookAt = lookAt
 
 	if self.camera then
 		self.camera.CameraType = Enum.CameraType.Scriptable
-		self.camera.CFrame = CFrame.lookAt(camPos, lookAt, up)
+		self.camera.CFrame = CFrame.lookAt(camPos, lookAt, rolledUp)
 		local targetFov = self.flow and C("Camera", "FlowFOV") or (tele.sprinting and C("Camera", "FOVSprint") or C("Camera", "FOVBase"))
+		-- ADR-44②连续速度 FOV:随实时速度在档位上加减(巡航=档位原值;Gain=0=关)
+		local fovGain = C("Camera", "FOVSpeedGain") or 0
+		if fovGain ~= 0 then
+			targetFov += (tele.speed - C("Speed", "Base")) * fovGain
+		end
+		-- ADR-44③点火冲拳:冲刺上升沿 FOV 目标额外冲高 PunchDeg,PunchDecaySec 内线性回落
+		local punchDeg = C("Camera", "FOVPunchDeg") or 0
+		local punchSec = C("Camera", "FOVPunchDecaySec") or 0.35
+		if punchDeg > 0 and punchSec > 0 then
+			if tele.sprinting and not self.prevSprint then
+				self.fovPunchT = punchSec
+			end
+			if self.fovPunchT > 0 then
+				targetFov += punchDeg * (self.fovPunchT / punchSec)
+				self.fovPunchT = math.max(0, self.fovPunchT - dt)
+			end
+		end
+		self.prevSprint = tele.sprinting
 		local fovAlpha = 1 - math.exp(-dt / math.max(C("Camera", "FOVLerpSec"), 1e-3))
 		self.camera.FieldOfView += (targetFov - self.camera.FieldOfView) * fovAlpha
 	end

@@ -20,11 +20,25 @@ local PARAMS = {
 	{ "Lean", "ForkMaxDeg", 0, 35, 0 },
 	{ "Camera", "FOVBase", 55, 90, 0 },
 	{ "Camera", "FOVSprint", 70, 110, 0 },
+	{ "Camera", "FlowFOV", 70, 115, 0 },
+	{ "Camera", "FOVLerpSec", 0.05, 0.50, 2 },
 	{ "Camera", "FollowLagSec", 0.02, 0.30, 2 },
 	{ "Camera", "YawLagSec", 0.05, 0.50, 2 },
 	{ "Camera", "Distance", 8, 30, 0 },
 	{ "Camera", "Height", 2, 14, 1 },
+	{ "Camera", "LookAhead", 4, 24, 0 },
+	{ "Camera", "LookUp", 0, 8, 1 },
 	{ "Camera", "ShakeSprint", 0, 0.6, 2 },
+	{ "Camera", "ShakeFreqHz", 5, 20, 0 },
+	-- ADR-44 GR2 手感包(默认 0=关,拖离 0 即生效;SteerRollGain 负值=反向侧倾)
+	{ "Camera", "SteerRollGain", -1, 1, 2 },
+	{ "Camera", "SteerRollMaxDeg", 0, 25, 0 },
+	{ "Camera", "FOVSpeedGain", 0, 0.30, 2 },
+	{ "Camera", "FOVPunchDeg", 0, 12, 0 },
+	{ "Camera", "FOVPunchDecaySec", 0.10, 0.80, 2 },
+	{ "Camera", "LandDipPerVy", 0, 0.02, 3 },
+	{ "Camera", "ShakeSpeedGain", 0, 0.40, 2 },
+	{ "Camera", "AirPitchDownDeg", 0, 12, 0 },
 }
 
 local TunePanel = {}
