@@ -61,6 +61,12 @@ local SWING_R6 = {
 
 local RiderRig = {}
 RiderRig.__index = RiderRig
+-- 导出姿态常量(tools/preview_rider_pose.lua 预览台读同一份=单一事实源;改姿态只改上方表)
+RiderRig.SADDLE = SADDLE
+RiderRig.POSE_R15 = POSE_R15
+RiderRig.POSE_R6 = POSE_R6
+RiderRig.GRIP_TRAIL_R15 = GRIP_TRAIL_R15
+RiderRig.BLADE_LEN = BLADE_LEN
 
 local function mkSwordPart(name, size, color, material, transparency)
 	local p = Instance.new("Part")
