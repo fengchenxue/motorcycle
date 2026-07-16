@@ -175,6 +175,7 @@ function BikeController:teleport(cf, keepSpeedFrac)
 	self.respawnT = nil   -- M4.1 修:R/传送打断硬撞转场,旧重生倒计时不得跨传送存活(R 全重置铁律)
 	self.crashSpin = 0
 	self.bounceCD = 0
+	self.climbCD = 0   -- M6.6:R/传送清爬墙再入冷却
 	for _, mtr in ipairs(self.forkMotors) do mtr.Transform = CFrame.identity end
 end
 
@@ -201,7 +202,8 @@ function BikeController:getTelemetry()
 		resetCount = self.resetCount,
 		-- M6.5 墙态(ADR-36):磁吸中 grounded=false 且 wallContact=false(墙态≠擦墙,经济中性)
 		wallRiding = self.wall ~= nil,
-		wallUp = self.wall and (self.wall.upEff or self.wall.n) or nil,  -- 车体 up=有效法线(圆角内=弧法线;相机 roll 目标)
+		wallUp = (self.wall and not self.wall.climb) and (self.wall.upEff or self.wall.n) or nil,  -- 车体 up=有效法线(爬墙态不喂:相机保持世界上向,零滚转)
+		climbing = self.wall ~= nil and self.wall.climb == true,  -- M6.6 爬墙态(ADR-47;HUD/验收用)
 		-- M4.1:重生输入保护窗口 + 碰撞定档结果(HUD/验收断言用)
 		inputProtected = self.inputProtectT > 0,
 		contactClass = self.contactClass,
@@ -530,6 +532,59 @@ function BikeController:_enterWall(hit)
 	self._prevWall = false
 end
 
+-- M6.6 进入爬墙态(ADR-47):正面/大角度经裙板圆角上墙——朝墙动量转沿弧上冲,重力衰减;
+-- 失速=离墙自由落体(前速清零);爬墙中压 A/D=转侧骑。只在圆角区内进入(墙中段正面=照旧障碍)。
+-- 爬墙不转 yaw(tYaw=nil:相机保持世界上向,车体视觉昂头上墙;经济中性与墙态一致)。
+function BikeController:_enterClimb(hit, vel)
+	local C = self.cfg.get
+	local filletR = C("WallRide", "FilletRadius") or 0
+	local hover = C("Ground", "HoverHeight")
+	local part = hit.seg.part
+	local bottomY = part.Position.Y - hit.seg.halfH
+	local h0 = self.physPos.Y - bottomY
+	if h0 >= filletR then
+		return -- 只经裙板圆角上墙
+	end
+	local facePt = part.CFrame.Position + hit.n * hit.seg.halfT
+	local dx = filletR - (self.physPos - facePt):Dot(hit.n)
+	local dy = filletR - h0
+	local phi0 = math.atan2(math.max(dx, 0), math.max(dy, 1e-6))
+	local nu = hit.n * math.sin(phi0) + Vector3.new(0, math.cos(phi0), 0)
+	local mu = -hit.n * math.cos(phi0) + Vector3.new(0, math.sin(phi0), 0)
+	local vClimb0 = vel:Dot(mu)
+	if vClimb0 <= 1 then
+		return -- 没有沿弧向上的动量
+	end
+	local segLook = part.CFrame.LookVector
+	local drift0 = vel:Dot(segLook)
+	local sn = self.smoothNormal
+	local look0 = Vector3.new(-math.sin(self.yaw), 0, -math.cos(self.yaw))
+	local surfLook = look0 - sn * look0:Dot(sn)
+	surfLook = (surfLook.Magnitude > 1e-4) and surfLook.Unit or look0
+	self.wall = {
+		seg = hit.seg,
+		n = hit.n,
+		along = (drift0 >= 0) and segLook or -segLook,
+		blendT = 0,
+		offN0 = (filletR - math.sqrt(dx * dx + dy * dy)) - hover,
+		startCF = CFrame.lookAt(self.physPos, self.physPos + surfLook, sn),
+		heightVel = 0,
+		phi = phi0,
+		upEff = nu,
+		climb = true,
+		vClimb = vClimb0,
+		drift = math.abs(drift0),
+		vRad0 = math.max(0, vel:Dot(-nu)),
+		yaw0 = self.yaw,
+		tYaw = nil,
+	}
+	self.grounded = false
+	self.vy = 0
+	self.vySurf = 0
+	self.wallContact = false
+	self._prevWall = false
+end
+
 -- 段内磁吸每帧:速度渐变复用 + A/D 高度带 + 折线行走跨段(ADR-43)+ 法向钉扎 + 三种退出(E4-2)
 function BikeController:_wallStep(dt)
 	local C = self.cfg.get
@@ -543,11 +598,41 @@ function BikeController:_wallStep(dt)
 	self:_steerRamp(dt)
 	self:_speedStep(dt)   -- 冲刺/轻刹/心流/提降速与地面同一套("贴墙就是平地跑")
 
+	-- M6.6 爬墙中转侧骑(ADR-47):压 A/D ≥ 阈值 → 动量爬墙切回正常贴墙(yaw/径向重走 C¹ 混合)
+	if w.climb then
+		local th = C("WallRide", "ClimbConvertSteer") or 0.5
+		if th <= 1 and math.abs(self.steer) >= th then
+			local rightT = -w.n:Cross(Vector3.yAxis) -- 爬姿屏幕右(μ×ν,与 φ 无关)
+			w.climb = nil
+			w.along = (rightT * (self.steer > 0 and 1 or -1)).Unit
+			w.tYaw = math.atan2(-w.along.X, -w.along.Z)
+			w.yaw0 = self.yaw
+			w.blendT = 0
+			w.offN0 = 0
+			w.vRad0 = 0
+			w.startCF = CFrame.lookAt(self.physPos,
+				self.physPos + (w.upEff or w.n):Cross(rightT), w.upEff or w.n)
+		end
+	end
 	-- 高度带:A/D 沿车体右轴滑移(along×n=±世界Y:右墙 D=升,左墙 A=升,与相机滚转后的屏幕方向一致);
-	-- 下坠漂移(默认 0=关)恒向世界下,不受墙侧影响
+	-- 下坠漂移(默认 0=关)恒向世界下,不受墙侧影响;爬墙态=爬升动量驱动(重力沿面衰减),失速=离墙
 	local bikeRightY = w.along:Cross(w.n).Y
-	local hVel = (-self.steer) * C("WallRide", "HeightBandSpeed") * bikeRightY
-		- C("WallRide", "FallDriftPerSec")
+	local hVel
+	if w.climb then
+		local sinp = (w.phi and w.phi < math.pi / 2) and math.sin(w.phi) or 1
+		w.vClimb -= C("Physics", "Gravity") * (C("WallRide", "ClimbGravityScale") or 1) * sinp * dt
+		if w.vClimb <= 0 then
+			self.curSpeed *= (C("WallRide", "ClimbStallKeepSpeed") or 0) -- 防失速后贴脸撞墙
+			self.climbCD = C("WallRide", "ClimbReenterCDSec") or 0.5     -- 防落回裙板立刻回吸的微跳循环
+			self:_exitWall(0)
+			return
+		end
+		hVel = w.vClimb
+		w.drift *= math.exp(-dt / math.max(C("WallRide", "ClimbDriftDecaySec") or 0.6, 1e-3))
+	else
+		hVel = (-self.steer) * C("WallRide", "HeightBandSpeed") * bikeRightY
+			- C("WallRide", "FallDriftPerSec")
+	end
 	w.heightVel = hVel
 
 	-- 推进(ADR-43 曲墙圆角=离散直墙链"折线行走"):行程在面片内直走,到当前段 Z 边界即
@@ -589,7 +674,7 @@ function BikeController:_wallStep(dt)
 	else
 		pos += Vector3.new(0, hVel * dt, 0)
 	end
-	local remain = self.curSpeed * dt
+	local remain = (w.climb and w.drift or self.curSpeed) * dt
 	for _ = 1, 10 do -- 防御上限:超限=剩余直走,帧末退出判定兜底
 		local cf = w.seg.part.CFrame
 		local lp = cf:PointToObjectSpace(pos)
@@ -645,7 +730,9 @@ function BikeController:_wallStep(dt)
 	-- 退出判定(墙局部坐标):|Z|>半长=段尾;Y>上缘=弹出(墙上高度=落差跳距);Y<下缘=回地。
 	-- M8.5(ADR-41)段尾先找直墙链延续段(同面同向、覆盖当前位置)无缝续吸;链端才真·弹道交接。
 	local lp = part.CFrame:PointToObjectSpace(pos)
-	if math.abs(lp.Z) > w.seg.halfL or math.abs(lp.Y) > w.seg.halfH then
+	-- ADR-47 爬墙越顶:等车体下缘清过墙顶(+悬浮高)再释放,防越顶瞬间扫掠命中墙顶带=假硬撞
+	local exitHalfH = w.seg.halfH + (w.climb and hover or 0)
+	if math.abs(lp.Z) > w.seg.halfL or math.abs(lp.Y) > exitHalfH then
 		local handed = false
 		if math.abs(lp.Y) <= w.seg.halfH and self.wallField and self.wallField.findContinuation then
 			local nxt = self.wallField:findContinuation(pos, w.n, w.along, {
@@ -671,7 +758,11 @@ function BikeController:_wallStep(dt)
 	end
 
 	-- 姿态:目标=贴墙框架(up=墙法线);混合期从入墙姿态过渡;视觉弹簧照常(steer 滚转=爬升压弯感)
-	local targetCF = CFrame.lookAt(pos, pos + w.along, w.upEff or w.n)
+	local lookT = w.along
+	if w.climb then
+		lookT = (w.upEff or w.n):Cross(-w.n:Cross(Vector3.yAxis)) -- μ=ν×rightT:沿面向上(车头昂起)
+	end
+	local targetCF = CFrame.lookAt(pos, pos + lookT, w.upEff or w.n)
 	local baseCF = targetCF
 	if w.blendT < blendSec then
 		baseCF = w.startCF.Rotation:Lerp(targetCF.Rotation, w.blendT / blendSec) + pos
@@ -735,6 +826,7 @@ function BikeController:step(dt)
 		return
 	end
 	if self.bounceCD > 0 then self.bounceCD = math.max(0, self.bounceCD - dt) end
+	if (self.climbCD or 0) > 0 then self.climbCD = math.max(0, self.climbCD - dt) end -- M6.6 爬墙再入冷却
 
 	-- M4.1 重生输入保护(§4.4):窗口内转向回中、冲刺/刹车忽略;客户端每帧重设也会被本处覆写
 	if self.inputProtectT > 0 then
@@ -932,6 +1024,20 @@ function BikeController:step(dt)
 		})
 		if hit then
 			self:_enterWall(hit)
+		elseif (C("WallRide", "ClimbEnabled") or 0) >= 1 then
+			-- M6.6 爬墙入口(ADR-47):角度门外(正面/大角度)经裙板圆角上墙
+			local filletR = C("WallRide", "FilletRadius") or 0
+			if filletR > C("Ground", "HoverHeight") + 0.05 and (self.climbCD or 0) <= 0
+				and self.wallField.findClimbEntry then
+				local vel = look * self.curSpeed + Vector3.new(0, self.grounded and 0 or self.vy, 0)
+				local chit = self.wallField:findClimbEntry(self.physPos, vel, {
+					window = C("WallRide", "EnterWindowStuds"),
+					minToward = C("WallRide", "ClimbMinToward") or 5,
+				})
+				if chit then
+					self:_enterClimb(chit, vel)
+				end
+			end
 		end
 	end
 end

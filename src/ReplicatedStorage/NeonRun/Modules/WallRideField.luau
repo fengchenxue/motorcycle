@@ -112,6 +112,31 @@ function WallRideField:findContinuation(pos, n, along, opts)
 	return best
 end
 
+-- M6.6 爬墙入口查询(ADR-47):角度门之外的进场(正面/大角度)——只看 触发区×墙高×朝墙分速,
+-- 不看航向与切向的夹角(那是侧骑的门)。调用方自行保证 ClimbEnabled 与圆角开(经裙板上墙)。
+-- vel: 世界速度向量;opts: { window, minToward }。返回 { seg, sign, n, localY }(取 sideDist 最近)。
+function WallRideField:findClimbEntry(pos, vel, opts)
+	local best, bestDist = nil, math.huge
+	for part, seg in pairs(self.segments) do
+		if part.Parent then
+			local cf = part.CFrame
+			local lp = cf:PointToObjectSpace(pos)
+			local sideDist = math.abs(lp.X) - seg.halfT
+			if sideDist >= 0 and sideDist <= opts.window
+				and math.abs(lp.Z) <= seg.halfL
+				and math.abs(lp.Y) <= seg.halfH then
+				local sign = (lp.X >= 0) and 1 or -1
+				local n = cf.RightVector * sign
+				if vel:Dot(-n) >= opts.minToward and sideDist < bestDist then
+					best = { seg = seg, sign = sign, n = n, localY = lp.Y }
+					bestDist = sideDist
+				end
+			end
+		end
+	end
+	return best
+end
+
 function WallRideField:destroy()
 	if self._addedConn then self._addedConn:Disconnect() end
 	if self._removedConn then self._removedConn:Disconnect() end

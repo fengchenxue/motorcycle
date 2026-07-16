@@ -116,6 +116,13 @@ return {
 		CamRollSec = 0.25,      -- 相机滚转平滑时长(roll≤90°;人工验收项)
 		ChainMaxTurnDeg = 8,    -- M8.5 直墙链跨段交接:相邻段面/切向夹角上限(ADR-41 曲墙=离散直墙链)
 		FilletRadius = 7,       -- ADR-45 地面→侧墙底部圆角半径(截面四分之一圆;0=关=直角吸附;人类拍板域 6–8)
+		ClimbEnabled = 1,       -- M6.6 爬墙动词(ADR-47):>入墙角度门的进场经裙板转垂直爬升;0=关=正面照旧撞
+		ClimbMinToward = 5,     -- 爬墙入口朝墙分速下限(studs/s)
+		ClimbGravityScale = 1,  -- 爬升重力系数(沿面分量;1=真实重力,越小冲得越高)
+		ClimbDriftDecaySec = 0.6, -- 斜角入墙的切向残速衰减时长(横漂手感)
+		ClimbConvertSteer = 0.5, -- 爬墙中 |A/D|≥此值=转侧骑(>1=禁用转换);转换走 C¹ 混合
+		ClimbStallKeepSpeed = 0, -- 失速离墙保留的前速比例(0=清零防贴脸;>0 可能贴墙振荡,调参注意)
+		ClimbReenterCDSec = 0.5, -- 失速后爬墙再入冷却(防落回裙板立刻回吸的微跳循环)
 	},
 	Sound = {
 		EngineVolume = 0.4,
