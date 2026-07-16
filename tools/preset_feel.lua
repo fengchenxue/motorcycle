@@ -63,14 +63,15 @@ local OVERRIDES = {
 		Lean_BodyRollMaxDeg = 26, Lean_LerpSpeed = 11, Lean_OvershootDeg = 5,
 	},
 	hot = {
-		-- v4:相机=人类三轮手调终值;速度=ADR-46 GR2 渐近加速+转向泄速
+		-- v5:人类五轮定值——YawLag 0.4 + 转向横移 lead 3/0.5(渐近);其余=v4(三轮相机终值+ADR-46 速度)
 		Speed_AccelTauSec = 0.9, Speed_SteerDragFrac = 0.05,
 		Camera_Distance = 9, Camera_Height = 5, Camera_LookAhead = 16, Camera_LookUp = 3.2,
-		Camera_FollowLagSec = 0.07, Camera_YawLagSec = 0.3,
+		Camera_FollowLagSec = 0.07, Camera_YawLagSec = 0.4,
 		Camera_FOVBase = 80, Camera_FOVSprint = 97, Camera_FlowFOV = 103, Camera_FOVLerpSec = 0.12,
 		Camera_ShakeSprint = 0.24, Camera_ShakeFreqHz = 11,
 		Camera_SteerRollGain = 0.12, Camera_SteerRollMaxDeg = 6, Camera_SteerRollLerpSec = 0.3,
-		Camera_LatLagSec = 0.2, Camera_FOVSpeedGain = 0.10,
+		Camera_LatLagSec = 0.2, Camera_SteerLeadStuds = 3, Camera_SteerLeadLerpSec = 0.5,
+		Camera_FOVSpeedGain = 0.10,
 		Camera_FOVPunchDeg = 6, Camera_FOVPunchDecaySec = 0.30,
 		Camera_LandDipPerVy = 0.008, Camera_LandDipMax = 1.4,
 		Camera_ShakeSpeedGain = 0.04, Camera_AirPitchDownDeg = 5, Camera_AirPitchLerpSec = 0.20,
