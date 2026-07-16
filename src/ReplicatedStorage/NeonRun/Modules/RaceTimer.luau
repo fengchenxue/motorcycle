@@ -37,6 +37,7 @@ function RaceTimer.new(ctrl, spline, opts)
 	self.laps = self.closed and math.max(1, opts.laps or 1) or 1
 	-- 检查点(按序):起点/终点 t=0,中间门均匀布于环上(防倒行/抄近道)
 	self.checkpointTs = opts.checkpoints or { 0.25, 0.5, 0.75 }
+	self.finishT = opts.finishT or FINISH_T   -- P3f 结局大门:开放式完赛线可前移(Track.FinishT;其后=滑行区)
 	-- 读奖牌阀值(结构化数据,直接 require)
 	local medalsCfg = require(RS.NeonRun.Config.Medals)
 	self.thresholds = (medalsCfg.Tracks and medalsCfg.Tracks[self.trackId]) or
@@ -187,7 +188,9 @@ function RaceTimer:step(dt)
 
 	-- 检查点门:当前样条参数跨过下一检查点 t 则计数(防抄近道需按序)
 	if self.ctrl and self.ctrl.physPos and self.spline then
-		local curT = select(1, self.spline:NearestPoint(self.ctrl.physPos))
+		-- P3g(ADR-49d)进度单源:优先用控制器的带窗进度 t——交叉/上下层赛道防全局最近点吸附别层
+		-- (坠落瞬间 t 前跳会误发分段门/误判完赛);无 progressT(旧调用方)退回全局
+		local curT = self.ctrl.progressT or select(1, self.spline:NearestPoint(self.ctrl.physPos))
 		-- 处理环形包围:向前进展量。
 		-- 关键防坑:一帧向后微动(如 0.02→0.005)经 mod 会被误读为“前进 98%”而扫过所有门。
 		-- 真实帧进展极小(百速约 0.0015/帧),故超过 MAX_ADV 的“前进”实为倒行/传送,不计门。
@@ -216,7 +219,7 @@ function RaceTimer:step(dt)
 			if self.closed then
 				reachedEnd = crossedForward(self._prevT, curT, 0)   -- 闭环:绕回起点 t=0/1 包围
 			else
-				reachedEnd = curT >= FINISH_T                        -- 开放式:骑到样条末端
+				reachedEnd = curT >= self.finishT                    -- 开放式:骑到完赛线(默认样条末端)
 			end
 			if reachedEnd then
 				self.lapsDone += 1

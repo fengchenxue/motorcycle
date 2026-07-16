@@ -173,4 +173,44 @@ function Spline:NearestPoint(pos)
 	return t, p, d
 end
 
+-- P3g(ADR-49d):带窗最近点——只在 tHint±windowStuds 弧长窗内搜索。
+-- 动机:赛道自交叉/上下层时,全局 NearestPoint 会吸附到空间更近的"别层"t(实测:交叉口坠落
+-- 重生被回取到下层锚=前进半圈)。tHint=nil 退化为全局(初始化/传送后重定位用)。
+function Spline:NearestPointNear(pos, tHint, windowStuds)
+	if tHint == nil then return self:NearestPoint(pos) end
+	local L = self.Length
+	local sHint = self:_wrap(tHint) * L
+	local lo = math.max(0, sHint - windowStuds)
+	local hi = math.min(L, sHint + windowStuds)
+	local cum, samples = self.CumLen, self.Samples
+	local function upper(s)
+		local a, b = 1, #cum
+		while a < b do
+			local m = math.ceil((a + b) / 2)
+			if cum[m] <= s then a = m else b = m - 1 end
+		end
+		return a
+	end
+	local iLo = math.max(1, upper(lo))
+	local iHi = math.min(#samples, upper(hi) + 1)
+	local bestI, bestD = iLo, math.huge
+	for i = iLo, iHi do
+		local d = (samples[i] - pos).Magnitude
+		if d < bestD then bestD, bestI = d, i end
+	end
+	local a = cum[math.max(iLo, bestI - 1)]
+	local b = cum[math.min(iHi, bestI + 1)]
+	for _ = 1, 24 do
+		local m1 = a + (b - a) / 3
+		local m2 = b - (b - a) / 3
+		local d1 = (self:GetPoint(m1 / L) - pos).Magnitude
+		local d2 = (self:GetPoint(m2 / L) - pos).Magnitude
+		if d1 < d2 then b = m2 else a = m1 end
+	end
+	local s = (a + b) / 2
+	local t = self:_wrap(s / L)
+	local p = self:GetPoint(t)
+	return t, p, (p - pos).Magnitude
+end
+
 return Spline

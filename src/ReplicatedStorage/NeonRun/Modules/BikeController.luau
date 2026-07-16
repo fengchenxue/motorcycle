@@ -121,7 +121,7 @@ function BikeController:setFlowBoost(b) self.flowBoost = b == true end  -- ADR-3
 function BikeController:applySpeedMultiplier(m)  -- M7:一次性速度惩罚(斩击失误减速);不低于 0
 	self.curSpeed = math.max(0, self.curSpeed * math.clamp(m, 0, 1))
 end
-function BikeController:setSpline(sp) self.spline = sp end
+function BikeController:setSpline(sp) self.spline = sp; self.progressT = nil end -- P3g:换样条=进度重定位
 function BikeController:setWallField(f) self.wallField = f end  -- M6.5:注入授权墙段注册表(WallRideField)
 function BikeController:setAnchors(list) self.anchors = list end  -- M4.1:烘焙锚点链(RespawnAnchors.load())
 function BikeController:setSpawnCF(cf) self.spawnCF = cf end      -- M4.1:发车位=隐式 0 号锚
@@ -176,6 +176,8 @@ function BikeController:teleport(cf, keepSpeedFrac)
 	self.crashSpin = 0
 	self.bounceCD = 0
 	self.climbCD = 0   -- M6.6:R/传送清爬墙再入冷却
+	-- P3g:传送=进度全局重定位(落点直接在目标层上,全局最近点即正确层;此后回到带窗跟踪)
+	self.progressT = self.spline and select(1, self.spline:NearestPoint(self.physPos)) or nil
 	for _, mtr in ipairs(self.forkMotors) do mtr.Transform = CFrame.identity end
 end
 
@@ -225,7 +227,8 @@ function BikeController:_doRespawn()
 	local frac = C("Respawn", "SpeedRestore")
 	local target = nil
 	if self.spline and self.anchors and #self.anchors > 0 then
-		local curT = select(1, self.spline:NearestPoint(self.physPos))
+		-- P3g:回取基准=带窗跟踪的进度 t(交叉口坠落曾被全局最近点吸到下层=前进半圈,ADR-49d)
+		local curT = self.progressT or select(1, self.spline:NearestPoint(self.physPos))
 		local setback = C("Respawn", "SetbackAnchors") or 0
 		-- 弧长≤当前的最近锚点,再回退 setback 个(内联 RespawnAnchors.pick 语义,避免模块循环依赖)
 		local idx = nil
@@ -677,8 +680,16 @@ function BikeController:_wallStep(dt)
 	if w.phi and w.phi < HALFPI then
 		w.phi += (hVel * dt) / rEff
 		if w.phi <= 0 then
-			self:_exitWall(0) -- 弧底驶出=回地(位姿已近直立,地面路径即刻捕获)
-			return
+			-- P3i(ADR-49f)弧底粘滞:低位贴墙"滑到弧底→自动回地→再磁吸"循环=试玩回报的"卡一下
+			-- 扭正"(实测零输入 320 帧入墙 5 次;爬升持稳则平顺)。开=仅高度带主动下压才驶出,
+			-- 零输入/被动漂移=钉弧底继续墙态;默认 0=旧语义逐位不变(m6_5/wallfillet 弧底用例旧口径)。
+			local activeDown = (-self.steer) * bikeRightY < -1e-3
+			if (C("WallRide", "StickyArcBottom") or 0) > 0 and not activeDown and not w.climb then
+				w.phi = 1e-3   -- 钉弧底(近直立,继续贴墙)
+			else
+				self:_exitWall(0) -- 弧底驶出=回地(位姿已近直立,地面路径即刻捕获)
+				return
+			end
 		end
 	else
 		pos += Vector3.new(0, hVel * dt, 0)
@@ -1009,13 +1020,23 @@ function BikeController:step(dt)
 		end
 	end
 
-	-- M4:坠落判定(掉出赛道体,同硬撞)
-	if self.spline and not self.grounded and self.vy < 0 then
-		local _, nearPt = self.spline:NearestPoint(newPos)
-		if newPos.Y < nearPt.Y - C("Collision", "FallBelowStuds") then
-			self.physPos = newPos
-			self:_beginRespawn("fell")
-			return
+	-- P3g(ADR-49d)进度单源:带窗最近点逐步跟踪(±150 studs)——交叉/上下层赛道防吸附到别层;
+	-- 坠落判定与重生回取都参照"自己所在层"的 t(teleport/setSpline 时全局重定位)
+	if self.spline then
+		local pT, pPt
+		if self.spline.NearestPointNear then
+			pT, pPt = self.spline:NearestPointNear(newPos, self.progressT, 150)
+		else
+			pT, pPt = self.spline:NearestPoint(newPos)   -- 旧 Spline 实例兜底(坑15 缓存跨代)
+		end
+		self.progressT = pT
+		-- M4:坠落判定(掉出赛道体,同硬撞)
+		if not self.grounded and self.vy < 0 then
+			if newPos.Y < pPt.Y - C("Collision", "FallBelowStuds") then
+				self.physPos = newPos
+				self:_beginRespawn("fell")
+				return
+			end
 		end
 	end
 
@@ -1054,7 +1075,19 @@ function BikeController:step(dt)
 					minToward = C("WallRide", "ClimbMinToward") or 5,
 				})
 				if chit then
-					self:_enterClimb(chit, vel)
+					-- P3i(ADR-49f)ADR-47 入口角度门回填:文档语义=夹角>EnterMaxAngleDeg(侧骑门外)才爬墙。
+					-- 43a 的圆角脚早捕获窗(R+1=8)比侧骑窗(6)宽,曾把 ~10° 浅擦墙抢成爬墙→动量微弱
+					-- 即失速→前速清零→0.5s 冷却→再捕获…循环(=试玩"总是卡一下扭正";实测循环间隔≈ReenterCD)。
+					-- 浅角度=不抢,留给侧骑磁吸(再近 2 studs 自然入侧骑);正面/大角度爬墙(Z4.5)不受影响。
+					local lookH2 = Vector3.new(look.X, 0, look.Z)
+					local okAngle = true
+					if lookH2.Magnitude > 1e-4 and chit.n then
+						local sinA = math.abs(lookH2.Unit:Dot(Vector3.new(chit.n.X, 0, chit.n.Z)))
+						okAngle = math.deg(math.asin(math.clamp(sinA, 0, 1))) > C("WallRide", "EnterMaxAngleDeg")
+					end
+					if okAngle then
+						self:_enterClimb(chit, vel)
+					end
 				end
 			end
 		end

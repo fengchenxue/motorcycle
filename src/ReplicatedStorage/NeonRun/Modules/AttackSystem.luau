@@ -134,6 +134,7 @@ local function defaultKill(part)
 	end
 	for _, d in ipairs(part:GetDescendants()) do
 		if d:IsA("PointLight") or d:IsA("SurfaceLight") or d:IsA("SpotLight") then d.Enabled = false end
+		if d:IsA("SurfaceGui") or d:IsA("BillboardGui") then d.Enabled = false end -- P3f:晶体闸门面文字随斩隐藏
 	end
 end
 
@@ -236,12 +237,38 @@ function AttackSystem:reset()
 				if info.baseCanQuery ~= nil then part.CanQuery = info.baseCanQuery end
 				for _, d in ipairs(part:GetDescendants()) do
 					if d:IsA("PointLight") or d:IsA("SurfaceLight") or d:IsA("SpotLight") then d.Enabled = true end
+					if d:IsA("SurfaceGui") or d:IsA("BillboardGui") then d.Enabled = true end -- P3f
 				end
 			end
 			info.dead = false
 		end
 		info.telegraphed = false
 	end
+end
+
+-- P3d 救济复现(ADR-49b,人类试玩直令"无法越过的斜坡前放重生会刷新的能量核"):玩家锚点重生时
+-- 只复活带 `MercyRespawn` 属性的静态靶(断口救济核防卡死;R=reset 全量语义不变)。
+-- 经济安全:重复入账的代价是重生亏时间(同 ADR-42"坠机刷晶=纯亏时间"论证),无农场价值。
+function AttackSystem:reviveMercy()
+	local n = 0
+	for part, info in pairs(self.targets) do
+		if info.dead and part.Parent and part:GetAttribute("MercyRespawn") then
+			if info.revive then
+				info.revive(part)
+			else
+				part.Transparency = info.baseTransparency
+				if info.baseCanCollide ~= nil then part.CanCollide = info.baseCanCollide end
+				if info.baseCanQuery ~= nil then part.CanQuery = info.baseCanQuery end
+				for _, d in ipairs(part:GetDescendants()) do
+					if d:IsA("PointLight") or d:IsA("SurfaceLight") or d:IsA("SpotLight") then d.Enabled = true end
+					if d:IsA("SurfaceGui") or d:IsA("BillboardGui") then d.Enabled = true end -- P3f
+				end
+			end
+			info.dead = false
+			n += 1
+		end
+	end
+	return n
 end
 
 function AttackSystem:getTelemetry()
