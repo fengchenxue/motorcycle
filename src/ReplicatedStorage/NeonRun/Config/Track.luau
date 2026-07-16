@@ -31,6 +31,7 @@ return {
 		OffsetFromEdge = 2,            -- 墙内侧贴面距路缘
 		SegmentLengthStuds = 40,       -- 直墙链每段长(曲线离散;单段=M6.5 直墙数据模型)
 		OverlapFrac = 0.06,            -- 相邻墙段搭接比例(跨段交接的覆盖保证)
+		SkirtFacets = 4,               -- P3d(ADR-49b):墙根裙板面片数/段(0=不铺;半径=WallRide_FilletRadius 现值)
 	},
 	Jump = {
 		SprintMarginStuds = 4,         -- 缺口=冲刺跳距−此余量("冲刺刚好",缺口设计法)
@@ -40,7 +41,23 @@ return {
 		MinLaunchSlopeDeg = 3,         -- 起跳切线坡度低于此值=平段(需补唇)
 	},
 	Checkpoints = {
-		Count = 4,                     -- 分段门数量(§7:3~5 个/条;写 Track.CheckpointTs 属性)
+		Count = 4,                     -- 分段门数量(§7:3~5 个/条;写 Track.CheckpointTs 属性;spec.checkpoints 可覆写)
+	},
+	-- ===== P3c(ADR-49)=====
+	Bridge = {                         -- 墙桥:主线路断+墙带唯一过法(spec 段声明 wallBridge=true)
+		GapStuds = 70,                 -- 路断长度(平切无楔=不可跳:心流平飞 ~22 studs 即坠,70 有 3 倍余量)
+		WallMarginStuds = 90,          -- 墙带在缺口两端的延伸余量(须 ≥ 入墙混合距 BlendSec×v冲刺≈54)
+	},
+	Fork = {                           -- 跳台高架捷径(spec 段声明 rampFork=true;主线样条零改动)
+		RampAngleDeg = 20,             -- 入口楔角(半幅 Rideable;顶高=tan×长≈11.6=高架面高)
+		RampLengthStuds = 32,
+		RampLateralStuds = 12,         -- 楔中心横向偏移(自动取弦侧;避开样条中心线=机器人不受扰)
+		RampWidth = 16,
+		GapStuds = 34,                 -- 楔顶→高架前沿缺口(同高跳:冲刺 ~45 ✓/巡航 ~25 ✗,失败=落回主线)
+		DeckWidth = 24,                -- 高架窄于主路=高危读感(§7 捷径语法)
+		DeckCrystals = 2,              -- 高架上的蓝区奖励(捷径存在理由,soft lint)
+		EntryFrac = 0.10,              -- 高架入口=段起+此比例
+		ExitFrac = 0.88,               -- 高架末端(飞落回主线,落点仍在本段/下段路面)
 	},
 	Robot = {
 		LookaheadStuds = 26,           -- 机器人循线前视距离

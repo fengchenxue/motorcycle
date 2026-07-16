@@ -14,15 +14,20 @@ local RS = game:GetService("ReplicatedStorage")
 local CS = game:GetService("CollectionService")
 local RunService = game:GetService("RunService")
 
-local Spline = require(RS.NeonRun.Modules.Spline)
+local Spline = require(RS.NeonRun.Modules.Spline:Clone())   -- 坑15:Edit 会话跨调用缓存,Clone 取最新类
 
 local TrackBuilder = {}
 
 local RIDEABLE_TAG = "Rideable"   -- ADR-28 物性声明制白名单;探针只认此 Tag(M4.1 切换后)
 local TRACK_FOLDER = "Track"      -- Workspace.NeonRun.Track
 
+-- 坑15:MCP/命令栏跨调用 require 缓存——烘焙参数经 :Clone() 重编译取最新 .Source(本模块自身也应 Clone 后 require)
+local trackCfgCache
 local function cfg()
-	return require(RS.NeonRun.Config.Track)
+	if not trackCfgCache then
+		trackCfgCache = require(RS.NeonRun.Config.Track:Clone())
+	end
+	return trackCfgCache
 end
 
 -- 事实源:全速(心流)可过的最小弯道半径 = v_flow / ω_high(转向角速度),指回 Handling,不硬编码。
@@ -129,8 +134,8 @@ local function tInGaps(t, gaps)
 	return false
 end
 
-local function part(name, size, cf, color, parent)
-	local p = Instance.new("Part")
+local function part(name, size, cf, color, parent, className)
+	local p = Instance.new(className or "Part")
 	p.Name = name
 	p.Size = size
 	p.CFrame = cf
@@ -143,6 +148,32 @@ local function part(name, size, cf, color, parent)
 	p.Color = color
 	p.Parent = parent
 	return p
+end
+
+-- ADR-45 裙板(P3d 移植自 gauntlet):墙根四分之一圆弧 Rideable 小面片(几何与解析圆角同源半径)
+-- ——任意角贴近墙根=沿裙板滚上墙,消灭"侧向磁吸窗外=被撞开"(人类试玩回报)。不占 WallRideSurface Tag。
+local function buildSkirt(wallPart, sideSign, r, facetsN, parent)
+	local cf = wallPart.CFrame
+	local halfT, halfH, len = wallPart.Size.X / 2, wallPart.Size.Y / 2, wallPart.Size.Z
+	local n = cf.RightVector * sideSign
+	local base = cf.Position + n * halfT - Vector3.new(0, halfH, 0)
+	for i = 1, facetsN do
+		local a0 = (i - 1) * (math.pi / 2) / facetsN
+		local a1 = i * (math.pi / 2) / facetsN
+		local x0, y0 = r * (1 - math.sin(a0)), r * (1 - math.cos(a0))
+		local x1, y1 = r * (1 - math.sin(a1)), r * (1 - math.cos(a1))
+		local am = (a0 + a1) / 2
+		local nu = n * math.sin(am) + Vector3.new(0, math.cos(am), 0)
+		local chordLen = math.sqrt((x1 - x0) ^ 2 + (y1 - y0) ^ 2)
+		local chordDir = (n * (x1 - x0) + Vector3.new(0, y1 - y0, 0)) / chordLen
+		local sPart = part(wallPart.Name .. "_Skirt" .. i,
+			Vector3.new(0.6, chordLen + 0.12, len),
+			CFrame.fromMatrix(base + n * ((x0 + x1) / 2) + Vector3.new(0, (y0 + y1) / 2, 0) - nu * 0.3,
+				nu, chordDir),
+			Color3.fromRGB(90, 175, 185), parent)
+		CS:AddTag(sPart, RIDEABLE_TAG)
+	end
+	return facetsN
 end
 
 -- 生成路面几何 + 打 Rideable Tag。清掉旧 Track 文件夹重建(幂等)。
@@ -221,7 +252,7 @@ end
 -- spec 解析:表直传或按名取(默认 Default=§7 节拍模板)
 function TrackBuilder.getSpec(specOrName)
 	if type(specOrName) == "table" then return specOrName end
-	local specs = require(RS.NeonRun.Config.TrackSpecs)
+	local specs = require(RS.NeonRun.Config.TrackSpecs:Clone())   -- 坑15:取最新 spec 声明
 	return specs[specOrName or "Default"] or specs.Default
 end
 
@@ -283,21 +314,31 @@ function TrackBuilder.planJumps(spline, segs)
 	local gaps, notes = {}, {}
 	for _, sg in ipairs(segs) do
 		if sg.def.jump then
-			local tCut = sg.t0 + (sg.t1 - sg.t0) * 0.45   -- 段中前部起跳(段尾留落地缓冲)
+			-- P3c/P3e:jump=true(全自动)或表 { lipDeg=楔角, lipLen=楔长, at=段内位置0~1(默认0.45),
+			--   gapStuds=手定缺口宽(默认=冲刺跳距−余量;手定过宽会在三档断言里亮❌), mercy=false 关救济组 }
+			local jdef = type(sg.def.jump) == "table" and sg.def.jump or nil
+			local tCut = sg.t0 + (sg.t1 - sg.t0) * ((jdef and jdef.at) or 0.45)
 			local tan = spline:GetTangent(tCut)
 			local slopeDeg = math.deg(math.atan2(tan.Y, Vector3.new(tan.X, 0, tan.Z).Magnitude))
-			local lip = nil
-			local dSprint = jumpDistance(spline, tCut, vSprint, nil)
-			if (not dSprint or dSprint < 12) or slopeDeg < C.Jump.MinLaunchSlopeDeg then
-				-- 平段/几何不足:自动补起跳唇(断桥形态②,ADR-41)
-				lip = C.Jump.LipAngleDeg
+			local lip = jdef and jdef.lipDeg or nil
+			local lipLen = jdef and jdef.lipLen or nil
+			local dSprint
+			if lip then
 				dSprint = jumpDistance(spline, tCut, vSprint, lip)
+			else
+				dSprint = jumpDistance(spline, tCut, vSprint, nil)
+				if (not dSprint or dSprint < 12) or slopeDeg < C.Jump.MinLaunchSlopeDeg then
+					-- 平段/几何不足:自动补起跳唇(断桥形态②,ADR-41)
+					lip = C.Jump.LipAngleDeg
+					dSprint = jumpDistance(spline, tCut, vSprint, lip)
+				end
 			end
 			if dSprint and dSprint >= 12 then
-				local gapLen = dSprint - C.Jump.SprintMarginStuds
+				local gapLen = (jdef and jdef.gapStuds) or (dSprint - C.Jump.SprintMarginStuds)
 				gaps[#gaps + 1] = {
 					fromT = tCut, toT = tCut + gapLen / spline.Length,
-					lip = lip, gapLen = gapLen, segIndex = sg.index,
+					lip = lip, lipLen = lipLen, gapLen = gapLen, segIndex = sg.index,
+					mercy = not (jdef and jdef.mercy == false),   -- P3d:断口救济组默认开(jump={mercy=false} 关)
 					dCruise = jumpDistance(spline, tCut, vCruise, lip),
 					dSprint = dSprint,
 					dFlow = jumpDistance(spline, tCut, vFlow, lip),
@@ -312,6 +353,60 @@ function TrackBuilder.planJumps(spline, segs)
 	return gaps, notes
 end
 
+-- P3c(ADR-49)墙桥规划:主线路断(平切无楔=不可跳)+ 墙带跨越(缺口两端各延 margin 供入/出墙)。
+-- 机器人不会贴墙:robotRun 对墙桥区间跳渡(该段可通过性由墙带验收线覆盖,ADR-36/43 一脉)。
+function TrackBuilder.planBridges(spline, segs, totalSec)
+	local B = cfg().Bridge
+	local H = require(RS.NeonRun.Config.Handling)
+	local vSprint = H.Speed.Base * H.Speed.SprintMultiplier
+	local blendSec = (H.WallRide and H.WallRide.BlendSec) or 0.2
+	local margin = math.max(B.WallMarginStuds, blendSec * vSprint * 1.2)   -- 入墙混合距 ×1.2 余量
+	local bridges = {}
+	for _, sg in ipairs(segs) do
+		-- P3f 蛇形墙带挖空(人类直令:墙带中段路面删掉=必须贴墙跨越):每条带中央断 slalomGapStuds,
+		-- 带两端余量=(带长−缺口)/2,须 ≥入墙混合距——过窄会在墙桥断言亮❌
+		if sg.def.wallSlalom and sg.def.slalomGapStuds and sg.def.wallSec and totalSec then
+			local d = sg.def
+			local L = spline.Length
+			local spanLen = (sg.t1 - sg.t0) * L
+			local wallLen = math.min((d.wallSec / totalSec) * L, spanLen * 0.9)
+			local n = d.wallSlalom
+			local usable = spanLen * 0.9
+			local bandLen = wallLen / n
+			local transLen = (usable - wallLen) / (n + 1)
+			local baseS = (sg.t0 + (sg.t1 - sg.t0) * 0.05) * L
+			local gap = math.min(d.slalomGapStuds, bandLen - 2 * blendSec * vSprint)
+			for k = 1, n do
+				local bandFromS = baseS + transLen * k + bandLen * (k - 1)
+				local gapFromS = bandFromS + (bandLen - gap) / 2
+				bridges[#bridges + 1] = {
+					bridge = true, segIndex = sg.index,
+					side = (d.wallSide or 1) * ((k % 2 == 1) and 1 or -1),
+					fromT = gapFromS / L, toT = (gapFromS + gap) / L, gapLen = gap,
+					wallFromT = bandFromS / L, wallToT = (bandFromS + bandLen) / L,
+					margin = (bandLen - gap) / 2, slalom = true,
+				}
+			end
+		end
+		if sg.def.wallBridge then
+			-- P3e:wallBridge=true(默认 at 0.45/宽 Bridge.GapStuds)或表 { at=, gapStuds=, wallSide= }
+			local bdef = type(sg.def.wallBridge) == "table" and sg.def.wallBridge or nil
+			local gapStuds = (bdef and bdef.gapStuds) or B.GapStuds
+			local L = spline.Length
+			local tCut = sg.t0 + (sg.t1 - sg.t0) * ((bdef and bdef.at) or 0.45)
+			bridges[#bridges + 1] = {
+				bridge = true, segIndex = sg.index,
+				side = (bdef and bdef.wallSide) or sg.def.wallSide or -1,
+				fromT = tCut, toT = tCut + gapStuds / L, gapLen = gapStuds,
+				wallFromT = math.max(sg.t0, tCut - margin / L),
+				wallToT = math.min(sg.t1, tCut + (gapStuds + margin) / L),
+				margin = margin,
+			}
+		end
+	end
+	return bridges
+end
+
 -- 局部转角(±spanStuds 切线夹角;判定点直线度=Combat_StraightMaxTurnDeg 同源)
 local function localTurnDeg(spline, t, spanStuds)
 	local d = (spanStuds or 8) / spline.Length
@@ -321,7 +416,8 @@ local function localTurnDeg(spline, t, spanStuds)
 end
 
 -- P3b 语法摆放:水晶主线均布 / 红区(敌·核·闸)只落直线点(入弯自动顺移,ADR-41)/ 墙带直墙链 / 起跳唇
-function TrackBuilder.buildContent(spline, segs, spec, gaps, totalSec)
+-- P3c 追加(ADR-49):bridges=墙桥(墙带跨断口)/ rampFork=跳台高架捷径
+function TrackBuilder.buildContent(spline, segs, spec, gaps, totalSec, bridges)
 	local C = cfg()
 	local CC, R = C.Content, C.Road
 	local H = require(RS.NeonRun.Config.Handling)
@@ -336,7 +432,9 @@ function TrackBuilder.buildContent(spline, segs, spec, gaps, totalSec)
 	folder.Parent = track
 
 	local placed = { crystals = 0, cores = 0, shooters = 0, gates = 0, walls = 0, lips = 0,
-		moved = 0, combatTs = {}, notes = {}, wallChainMaxTurn = 0 }
+		moved = 0, combatTs = {}, notes = {}, wallChainMaxTurn = 0,
+		forkDecks = 0, forkNotes = {}, bridgeWalls = 0,
+		mercyCrystals = 0, mercyCores = 0, slalomBands = 0, skirts = 0 }
 
 	local function itemAt(name, tag, size, shape, color, t, lateral, extraUp)
 		local cf = spline:GetCFrame(t)
@@ -350,11 +448,23 @@ function TrackBuilder.buildContent(spline, segs, spec, gaps, totalSec)
 		return p
 	end
 
-	-- 蓝区:水晶全轨均布贴主行车线(磁吸=保底;§7),缺口上空不摆
+	-- 蓝区:水晶全轨均布贴主行车线(磁吸=保底;§7),缺口上空不摆;
+	-- P3f(人类反馈):贴断口沿的晶后退到安全位;救济区(断口前 130)已有救济组=均布晶跳过防扎堆
 	local budget = (spec.supply and spec.supply.crystals) or 12
 	for i = 1, budget do
 		local t = (i - 0.5) / budget
-		if not tInGaps(t, gaps) then
+		local drop = false
+		for _, g in ipairs(gaps or {}) do
+			local aheadStuds = (g.fromT - t) * spline.Length
+			if aheadStuds > 0 and aheadStuds <= 130 and g.mercy then
+				drop = true   -- 救济组窗口内,跳过(防 road358 式扎堆)
+				break
+			elseif aheadStuds > 0 and aheadStuds <= 40 then
+				t = g.fromT - 55 / spline.Length   -- 悬在断口沿=挪到安全位
+				break
+			end
+		end
+		if not drop and not tInGaps(t, gaps) then
 			itemAt("Crystal", "EnergyCrystal", Vector3.new(2, 2, 2), Enum.PartType.Ball,
 				Color3.fromRGB(0, 200, 255), t, 0)
 			placed.crystals += 1
@@ -365,13 +475,37 @@ function TrackBuilder.buildContent(spline, segs, spec, gaps, totalSec)
 	local wallSpans = {}
 	for _, sg in ipairs(segs) do
 		local d = sg.def
-		if d.wallSec and d.wallSec > 0 then
+		if d.wallSec and d.wallSec > 0 and not (d.wallSlalom and d.slalomGapStuds) then
+			-- (蛇形+挖空的带已由 planBridges 生成为墙桥,经 bridges 并入,勿双铺)
 			local spanLen = (sg.t1 - sg.t0) * spline.Length
 			local wallLen = math.min((d.wallSec / totalSec) * spline.Length, spanLen * 0.9)
-			local startT = sg.t0 + ((sg.t1 - sg.t0) - wallLen / spline.Length) * 0.5
-			wallSpans[#wallSpans + 1] = { fromT = startT, toT = startT + wallLen / spline.Length,
-				side = d.wallSide or 1, segIndex = sg.index }
+			local n = d.wallSlalom or 1
+			if n <= 1 then
+				local startT = sg.t0 + ((sg.t1 - sg.t0) - wallLen / spline.Length) * 0.5
+				wallSpans[#wallSpans + 1] = { fromT = startT, toT = startT + wallLen / spline.Length,
+					side = d.wallSide or 1, segIndex = sg.index }
+			else
+				-- P3d 蛇形墙带(ADR-49b 人类直令"来回切换,一会左一会右"):N 段左右交替,过渡段落地穿越;
+				-- 判定点排除只罩墙带本体 → 声明的敌人自动落进过渡段(§7"墙段内不摆判定点/射手"自动成立)
+				local usable = spanLen * 0.9
+				local bandLen = wallLen / n
+				local transLen = (usable - wallLen) / (n + 1)
+				local baseS = (sg.t0 + (sg.t1 - sg.t0) * 0.05) * spline.Length
+				for k = 1, n do
+					local fromS = baseS + transLen * k + bandLen * (k - 1)
+					wallSpans[#wallSpans + 1] = {
+						fromT = fromS / spline.Length, toT = (fromS + bandLen) / spline.Length,
+						side = (d.wallSide or 1) * ((k % 2 == 1) and 1 or -1),
+						segIndex = sg.index, slalom = true,
+					}
+				end
+			end
 		end
+	end
+	-- P3c 墙桥的墙带并入同一列表(同一链生成器铺,同享判定点排除)
+	for _, b in ipairs(bridges or {}) do
+		wallSpans[#wallSpans + 1] = { fromT = b.wallFromT, toT = b.wallToT,
+			side = b.side, segIndex = b.segIndex, isBridge = true }
 	end
 
 	-- 红区:逐段按声明摆(判定点只落直线点;入弯自动顺移+间距守卫;缺口与墙段区间内不摆)
@@ -431,19 +565,71 @@ function TrackBuilder.buildContent(spline, segs, spec, gaps, totalSec)
 					local side = (si % 2 == 0) and 1 or -1
 					if kind == "shooter" then
 						local p = itemAt("TBShooter" .. sg.index .. "_" .. si, "ShooterEnemy",
-							Vector3.new(3, 5, 3), nil, Color3.fromRGB(255, 60, 110), t, side * CC.ShooterLateral, 0.9)
+							Vector3.new(3, 5, 3), nil, Color3.fromRGB(255, 40, 40), t, side * CC.ShooterLateral, 0.9)
 						p.Material = Enum.Material.SmoothPlastic
 						placed.shooters += 1
 					elseif kind == "core" then
 						itemAt("Core", "EnergyCore", Vector3.new(4, 4, 4), nil,
 							Color3.fromRGB(180, 0, 255), t, side * CC.CoreLateral)
 						placed.cores += 1
-					else -- gate:覆半幅内(§7 主路线永不强制斩击=必可绕行);ADR-42:未斩=实体墙(斩后 AttackSystem 切物性)
-						local w = R.Width * CC.GateCoverFrac
-						local gp = itemAt("EnergyGate", "Destructible", Vector3.new(w, 10, 1), nil,
-							Color3.fromRGB(255, 80, 40), t, side * (R.Width / 2 - w / 2), 3.4)
+					else
+						-- P3g 闸门重设计(ADR-49d,人类反馈可读性+功能性):**全幅门框**(纯视觉,斩后留
+						-- "门洞"读感——门框还在、能量幕消失=状态变化一眼可读)+ **ForceField 能量幕**=
+						-- Destructible 本体(§7 必可绕行:幕只覆半幅,另半幅=框下空门洞;ADR-42 未斩=实体墙不变)。
+						-- 幕=核同紫「紫=可斩」+双面"⚔ 斩"字+紫光(斩后 AttackSystem 连 Gui/灯一起灭,复活复原)。
+						-- P3h:gateFull=true(spec 段声明)=幕覆全幅强制斩击——仅限教学闸门(ADR-42 明文豁免);
+						-- 斩击免费(J 键不耗能)+锚点在门前=失败重试零成本,无卡死风险
+						local w = (d.gateFull and R.Width) or (R.Width * CC.GateCoverFrac)
+						local cfG = spline:GetCFrame(t)
+						local baseG = cfG.Position - Vector3.new(0, R.SinkBelowSpline, 0)
+						local lookG = Vector3.new(cfG.LookVector.X, 0, cfG.LookVector.Z)
+						lookG = lookG.Magnitude > 1e-4 and lookG.Unit or Vector3.zAxis
+						local rightG = cfG.RightVector
+						local FRAME_H = 14
+						local frameCol = Color3.fromRGB(28, 34, 50)
+						for _, sgn in ipairs({ -1, 1 }) do
+							local postPos = baseG + rightG * (sgn * (R.Width / 2 + 1.2)) + Vector3.new(0, FRAME_H / 2, 0)
+							local post = part("GateFramePost", Vector3.new(1.6, FRAME_H, 1.6),
+								CFrame.lookAt(postPos, postPos + lookG), frameCol, folder)
+							post.Material = Enum.Material.SmoothPlastic
+							post.CanCollide = false
+							post.CanQuery = false
+						end
+						local beamPos = baseG + Vector3.new(0, FRAME_H - 0.6, 0)
+						local beamP = part("GateFrameBeam", Vector3.new(R.Width + 4, 1.6, 1.6),
+							CFrame.lookAt(beamPos, beamPos + lookG), frameCol, folder)
+						beamP.Material = Enum.Material.SmoothPlastic
+						beamP.CanCollide = false
+						beamP.CanQuery = false
+						-- P3h 斩不中修复:幕中心=路面+5(判定盒竖向 ±5,旧中心 +7 摸不到);下缘沉入路面 2=视觉不变
+						local fieldLat = d.gateFull and 0 or (side * (R.Width / 2 - w / 2))
+						local fieldPos = baseG + rightG * fieldLat + Vector3.new(0, 5, 0)
+						local gp = part("EnergyGate", Vector3.new(w, FRAME_H, 1),
+							CFrame.lookAt(fieldPos, fieldPos + lookG), Color3.fromRGB(180, 0, 255), folder)
+						gp.Material = Enum.Material.ForceField
 						gp.CanCollide = true
 						gp.CanQuery = true
+						CS:AddTag(gp, "Destructible")
+						local glow = Instance.new("PointLight")
+						glow.Color = Color3.fromRGB(190, 60, 255)
+						glow.Brightness = 2.5
+						glow.Range = 24
+						glow.Parent = gp
+						for _, face in ipairs({ Enum.NormalId.Front, Enum.NormalId.Back }) do
+							local gui = Instance.new("SurfaceGui")
+							gui.Face = face
+							gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+							gui.PixelsPerStud = 20
+							gui.Parent = gp
+							local lbl = Instance.new("TextLabel")
+							lbl.Size = UDim2.new(1, 0, 1, 0)
+							lbl.BackgroundTransparency = 1
+							lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+							lbl.TextScaled = true
+							lbl.Font = Enum.Font.GothamBlack
+							lbl.Text = "⚔ 斩"
+							lbl.Parent = gui
+						end
 						placed.gates += 1
 					end
 				end
@@ -455,6 +641,7 @@ function TrackBuilder.buildContent(spline, segs, spec, gaps, totalSec)
 	-- 区间=上面算好的 wallSpans(与判定点排除区同源,§7)
 	for _, ws in ipairs(wallSpans) do
 		do
+			if ws.slalom then placed.slalomBands += 1 end
 			local side = ws.side
 			local wallLen = (ws.toT - ws.fromT) * spline.Length
 			local startT = ws.fromT
@@ -478,6 +665,12 @@ function TrackBuilder.buildContent(spline, segs, spec, gaps, totalSec)
 					CFrame.lookAt(center, center + lookH), Color3.fromRGB(0, 180, 220), folder)
 				CS:AddTag(p, "WallRideSurface")
 				placed.walls += 1
+				if ws.isBridge then placed.bridgeWalls += 1 end
+				-- P3d:路侧墙根裙板(半径=人类调参现值;0=关)
+				local fr = RS.NeonRun.Config.Handling:GetAttribute("WallRide_FilletRadius") or 7
+				if (C.Wall.SkirtFacets or 0) > 0 and fr > 0 then
+					placed.skirts += buildSkirt(p, -side, fr, C.Wall.SkirtFacets, folder)
+				end
 			end
 		end
 	end
@@ -485,7 +678,7 @@ function TrackBuilder.buildContent(spline, segs, spec, gaps, totalSec)
 	-- 起跳唇(平段 jump 的几何解;Rideable 楔形板,顶端=断口起点)
 	for _, g in ipairs(gaps or {}) do
 		if g.lip then
-			local Llip = C.Jump.LipLengthStuds
+			local Llip = g.lipLen or C.Jump.LipLengthStuds
 			local pitch = math.rad(g.lip)
 			local tStart = g.fromT - Llip / spline.Length
 			local cf0 = spline:GetCFrame(math.max(tStart, 0))
@@ -503,12 +696,145 @@ function TrackBuilder.buildContent(spline, segs, spec, gaps, totalSec)
 		end
 	end
 
+	-- P3d 救济组(ADR-49b,人类试玩直令):每个断口前铺 晶×2(中线,磁吸保底)+ 核×1(近线,
+	-- MercyRespawn=随玩家锚点重生复现,AttackSystem:reviveMercy)——防"零能量卡死在冲刺门"重试循环
+	-- (锚点重生不回能,实证;水晶自带 6s 冷却复现)。首过顺路 +43 能量,已计入供给统计(报告注明)。
+	for _, g in ipairs(gaps or {}) do
+		if g.lip and g.mercy then
+			local Lm = spline.Length
+			for i, back in ipairs({ 110, 82 }) do
+				local t = g.fromT - back / Lm
+				if t > 0 and not tInGaps(t, gaps) then
+					itemAt("MercyCrystal" .. g.segIndex .. "_" .. i, "EnergyCrystal", Vector3.new(2, 2, 2),
+						Enum.PartType.Ball, Color3.fromRGB(0, 200, 255), t, 0)
+					placed.crystals += 1
+					placed.mercyCrystals += 1
+				end
+			end
+			local tc = g.fromT - 52 / Lm
+			if tc > 0 then
+				local core = itemAt("MercyCore" .. g.segIndex, "EnergyCore", Vector3.new(4, 4, 4), nil,
+					Color3.fromRGB(180, 0, 255), tc, 6)
+				core:SetAttribute("MercyRespawn", true)
+				placed.cores += 1
+				placed.mercyCores += 1
+			end
+		end
+	end
+
+	-- P3c 跳台高架捷径(ADR-49 rampFork):入口=半幅跳台楔(Rideable)+缺口+高架直桥(弦切弯内),
+	-- 末端飞落回主线;主线样条零改动(机器人与不走捷径的玩家路径不变)。
+	-- 缺口按同高跳距分档:冲刺 v²sin2θ/g 需 ≥缺口+6,巡航需 ≤缺口−4;巡航失败=落回正下方主线路面(零惩罚)。
+	local H2 = require(RS.NeonRun.Config.Handling)
+	for _, sg in ipairs(segs) do
+		if sg.def.rampFork then
+			local F = C.Fork
+			local tE = sg.t0 + (sg.t1 - sg.t0) * F.EntryFrac
+			local tX = sg.t0 + (sg.t1 - sg.t0) * F.ExitFrac
+			local cfE, cfX = spline:GetCFrame(tE), spline:GetCFrame(tX)
+			local chord = cfX.Position - cfE.Position
+			local side = (chord:Dot(cfE.RightVector) >= 0) and 1 or -1   -- 高架取弦侧(弯内)
+			local lookH = Vector3.new(cfE.LookVector.X, 0, cfE.LookVector.Z)
+			lookH = lookH.Magnitude > 1e-4 and lookH.Unit or Vector3.zAxis
+			local a = math.rad(F.RampAngleDeg)
+			local h = math.tan(a) * F.RampLengthStuds
+			local base = cfE.Position + cfE.RightVector * (side * F.RampLateralStuds)
+				- Vector3.new(0, R.SinkBelowSpline, 0)
+			local rampCenter = base + Vector3.new(0, h / 2, 0)
+			local ramp = part("ForkRamp" .. sg.index, Vector3.new(F.RampWidth, h, F.RampLengthStuds),
+				CFrame.lookAt(rampCenter, rampCenter - lookH), Color3.fromRGB(90, 200, 140), folder, "WedgePart")
+			CS:AddTag(ramp, RIDEABLE_TAG)
+			-- 高架:楔顶缺口 GapStuds 之后起桥,直指出口点上方(平桥=入口高;出口路面更低→末端自然飞落)
+			local lipTop = base + lookH * (F.RampLengthStuds / 2) + Vector3.new(0, h, 0)
+			local exitTop = cfX.Position - Vector3.new(0, R.SinkBelowSpline, 0)
+			local dirD = Vector3.new(exitTop.X, 0, exitTop.Z) - Vector3.new(lipTop.X, 0, lipTop.Z)
+			dirD = dirD.Magnitude > 1e-4 and dirD.Unit or lookH
+			local dStart = lipTop + dirD * F.GapStuds
+			local dEnd = Vector3.new(exitTop.X, lipTop.Y, exitTop.Z)
+			local deckLen = (dEnd - dStart).Magnitude
+			local dCenter = (dStart + dEnd) / 2 - Vector3.new(0, 0.5, 0)
+			local deck = part("ForkDeck" .. sg.index, Vector3.new(F.DeckWidth, 1, deckLen),
+				CFrame.lookAt(dCenter, dCenter + dirD), Color3.fromRGB(70, 90, 120), folder)
+			CS:AddTag(deck, RIDEABLE_TAG)
+			for k = 1, (F.DeckCrystals or 0) do
+				local cpos = dStart + dirD * (deckLen * k / ((F.DeckCrystals or 0) + 1)) + Vector3.new(0, 2, 0)
+				local cr = part("ForkCrystal" .. sg.index .. "_" .. k, Vector3.new(2, 2, 2),
+					CFrame.new(cpos), Color3.fromRGB(0, 200, 255), folder)
+				cr.Shape = Enum.PartType.Ball
+				cr.Material = Enum.Material.Neon
+				cr.CanCollide = false
+				cr.CanQuery = false
+				CS:AddTag(cr, "EnergyCrystal")
+				placed.crystals += 1
+			end
+			placed.forkDecks += 1
+			local vS = H2.Speed.Base * H2.Speed.SprintMultiplier
+			local vC = H2.Speed.Base
+			local rangeS = vS * vS * math.sin(2 * a) / H2.Physics.Gravity
+			local rangeC = vC * vC * math.sin(2 * a) / H2.Physics.Gravity
+			placed.forkNotes[#placed.forkNotes + 1] = {
+				segIndex = sg.index, gap = F.GapStuds, rangeSprint = rangeS, rangeCruise = rangeC,
+				deckLen = deckLen, lipDeg = F.RampAngleDeg,
+				pass = (rangeS >= F.GapStuds + 6) and (rangeC <= F.GapStuds - 4),
+			}
+		end
+	end
+
 	return placed
 end
 
+-- P3f 结局大门(人类直令):白霓虹拱门+FINISH 牌+地面线(纯视觉;完赛判定=RaceTimer 读 Track.FinishT)
+function TrackBuilder.buildFinishGate(spline, tFin)
+	local R = cfg().Road
+	local track = workspace.NeonRun:FindFirstChild(TRACK_FOLDER)
+	local folder = track and track:FindFirstChild("Content")
+	if not folder then return end
+	local cf = spline:GetCFrame(tFin)
+	local base = cf.Position - Vector3.new(0, R.SinkBelowSpline, 0)
+	local up = Vector3.yAxis
+	-- P3j:水平航向系(柱竖直/梁水平横跨)——CFrame.new 恒等旋转在非轴向路段横梁必歪
+	local lookRaw = cf.LookVector
+	local look = Vector3.new(lookRaw.X, 0, lookRaw.Z)
+	look = look.Magnitude > 1e-4 and look.Unit or Vector3.zAxis
+	local right = Vector3.new(-look.Z, 0, look.X)
+	local HALF_W, HEIGHT, BAR = R.Width / 2 + 2, 17, 1.4
+	local white = Color3.fromRGB(240, 245, 255)
+	local function deco(name, size, cfr)
+		local p = part(name, size, cfr, white, folder)
+		p.Material = Enum.Material.Neon
+		p.CanCollide = false
+		p.CanQuery = false
+		return p
+	end
+	deco("FinishPost_L", Vector3.new(BAR, HEIGHT, BAR), CFrame.new(base + right * HALF_W + up * (HEIGHT / 2)))
+	deco("FinishPost_R", Vector3.new(BAR, HEIGHT, BAR), CFrame.new(base - right * HALF_W + up * (HEIGHT / 2)))
+	deco("FinishBeam", Vector3.new(HALF_W * 2 + BAR, BAR, BAR),
+		CFrame.lookAt(base + up * HEIGHT, base + up * HEIGHT + look))
+	deco("FinishStripe", Vector3.new(HALF_W * 2, 0.2, 2.5), CFrame.lookAt(base + up * 0.12, base + up * 0.12 + look))
+	local signPos = base + up * (HEIGHT - 3)
+	local board = part("FinishSign", Vector3.new(20, 5, 0.5),
+		CFrame.lookAt(signPos, signPos - look), Color3.fromRGB(10, 14, 22), folder)
+	board.Material = Enum.Material.SmoothPlastic
+	board.CanCollide = false
+	board.CanQuery = false
+	local gui = Instance.new("SurfaceGui")
+	gui.Face = Enum.NormalId.Front
+	gui.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+	gui.PixelsPerStud = 30
+	gui.Parent = board
+	local lbl = Instance.new("TextLabel")
+	lbl.Size = UDim2.new(1, 0, 1, 0)
+	lbl.BackgroundTransparency = 1
+	lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+	lbl.TextScaled = true
+	lbl.Font = Enum.Font.GothamBold
+	lbl.Text = "🏁 FINISH 🏁"
+	lbl.Parent = gui
+end
+
 -- P4a 分段门:均匀目标吸附到节拍区段边界(语义分段);写 Track.CheckpointTs 属性(运行时同源)
-function TrackBuilder.bakeCheckpoints(spline, segs)
-	local count = cfg().Checkpoints.Count
+function TrackBuilder.bakeCheckpoints(spline, segs, spec)
+	local count = (spec and spec.checkpoints) or cfg().Checkpoints.Count
 	local boundaries = {}
 	for i = 2, #segs do boundaries[#boundaries + 1] = segs[i].t0 end
 	local ts, used = {}, {}
@@ -572,11 +898,37 @@ function TrackBuilder.robotRun(spline, opts)
 	local budget = math.floor((spline.Length / vSprint) * 60 * Rb.BudgetFactor)
 	local tEst, prevCorrected, needCorrect = 0, 0, false
 	ctrl:on("respawned", function() needCorrect = true end)
+	-- P3h:教学闸门=战斗动词——机器人视作已斩开(ADR-41 纯几何可骑性,锁经济不模拟战斗;跑后复原)。
+	-- 否则 gateFull 全幅门会把机器人堵死在门前(实测 149 次重生耗尽预算)。
+	-- ⚠ 本引擎碰撞=射线/体积查询(坑11):放行必须连 CanQuery 一起关,只关 CanCollide 射线照样命中
+	local gatesOff = {}
+	for _, inst in ipairs(CS:GetTagged("Destructible")) do
+		if inst:IsA("BasePart") and (inst.CanCollide or inst.CanQuery) then
+			gatesOff[#gatesOff + 1] = { p = inst, c = inst.CanCollide, q = inst.CanQuery }
+			inst.CanCollide = false
+			inst.CanQuery = false
+		end
+	end
 	local resets0 = ctrl.resetCount
 	local finished, steps = false, 0
+	local bridgeSkips = 0
 	for k = 1, budget do
 		steps = k
 		tEst += (ctrl.curSpeed * DT) / spline.Length
+		-- P3c 墙桥跳渡(ADR-49):机器人不会贴墙,墙桥段=非几何可骑性段(可通过性由墙带验收线覆盖)
+		if opts.bridges then
+			for _, b in ipairs(opts.bridges) do
+				if tEst >= b.fromT - 30 / spline.Length and tEst < b.toT + 10 / spline.Length then
+					local tt = b.toT + 40 / spline.Length
+					local cf2 = spline:GetCFrame(tt)
+					ctrl:teleport(CFrame.lookAt(cf2.Position, cf2.Position + cf2.LookVector))
+					tEst = tt
+					prevCorrected = tt
+					bridgeSkips += 1
+					break
+				end
+			end
+		end
 		if needCorrect or k % Rb.CorrectEverySteps == 0 then
 			needCorrect = false
 			local cur = select(1, spline:NearestPoint(ctrl.physPos))
@@ -587,7 +939,7 @@ function TrackBuilder.robotRun(spline, opts)
 			prevCorrected = cur
 			tEst = cur
 		end
-		if not closed and tEst >= 0.997 then
+		if not closed and tEst >= (opts.finishT or 0.997) then   -- P3f:结局大门前移时机器人同步(奖牌线草稿口径一致)
 			finished = true
 			break
 		end
@@ -604,11 +956,14 @@ function TrackBuilder.robotRun(spline, opts)
 	local resets = ctrl.resetCount - resets0
 	ctrl:destroy()
 	model:Destroy()
-	return { finished = finished, steps = steps, timeSec = steps / 60, resets = resets, budget = budget }
+	for _, g in ipairs(gatesOff) do g.p.CanCollide = g.c; g.p.CanQuery = g.q end   -- 门物性复原
+	return { finished = finished, steps = steps, timeSec = steps / 60, resets = resets, budget = budget,
+		bridgeSkips = bridgeSkips }
 end
 
 -- P2 lint 全套:弯道(几何,报告制)+判定点复核+供给两桶(红区=0 报警)+跳跃三档
-function TrackBuilder.lintAll(spline, segs, content, gaps, spec, totalSec)
+-- P3c 追加:墙桥断言(缺口不可跳+墙带覆盖余量)+ 冲刺时间预算
+function TrackBuilder.lintAll(spline, segs, content, gaps, spec, totalSec, bridges)
 	local C = cfg()
 	local H = require(RS.NeonRun.Config.Handling)
 	local curve = TrackBuilder.lint(spline)
@@ -644,6 +999,28 @@ function TrackBuilder.lintAll(spline, segs, content, gaps, spec, totalSec)
 				and (g.dFlow ~= nil and g.dFlow >= g.gapLen + 2),
 		}
 	end
+	-- P3c 墙桥断言:缺口不可跳(平切无楔,心流平飞短于缺口/落不进)+ 墙带覆盖含入/出余量 + 墙件已铺
+	local vFlow = H.Speed.Base * H.Speed.SprintMultiplier * H.Speed.FlowExtraMultiplier
+	local bridgeResults = {}
+	for _, b in ipairs(bridges or {}) do
+		local dFlow = jumpDistance(spline, b.fromT, vFlow, nil)
+		bridgeResults[#bridgeResults + 1] = {
+			segIndex = b.segIndex, gapLen = b.gapLen, margin = b.margin, dFlow = dFlow,
+			unjumpable = (dFlow == nil) or (dFlow < b.gapLen),
+			wallCovered = (b.fromT - b.wallFromT) * spline.Length >= b.margin * 0.9
+				and (b.wallToT - b.toT) * spline.Length >= b.margin * 0.9,
+			wallsBuilt = content.bridgeWalls > 0,
+		}
+	end
+	-- P3c 冲刺时间预算(报告行;弹反/斩敌=技巧收入另计,不进保底预算)
+	local E = require(RS.NeonRun.Config.Energy)
+	local supplyEnergy = E.StartEnergy + content.crystals * E.CrystalGain
+		+ content.cores * E.CoreGain + content.gates * E.GateGain
+	local sprintBudget = {
+		energy = supplyEnergy,
+		sec = supplyEnergy / E.SprintDrainPerSec,
+		jumps = #(gaps or {}),   -- 需要冲刺的断口数(每处 ~2.5s 助跑+滞空)
+	}
 	-- 节拍:实际时长 vs 模板(比例制归一,差异只报告,裁决归人)
 	local estSec = spline.Length / (H.Speed.Base * H.Speed.SprintMultiplier)
 	return {
@@ -651,6 +1028,9 @@ function TrackBuilder.lintAll(spline, segs, content, gaps, spec, totalSec)
 		combatBad = combatBad,
 		supply = supply,
 		jumps = jumpResults,
+		bridges = bridgeResults,
+		forkNotes = content.forkNotes,
+		sprintBudget = sprintBudget,
 		wallChainMaxTurn = content.wallChainMaxTurn,
 		wallChainLimit = H.WallRide and 8 or 8,
 		rhythm = { templateSec = totalSec, estSec = estSec },
@@ -666,14 +1046,25 @@ function TrackBuilder.compile(opts)
 	local spec = TrackBuilder.getSpec(opts.spec)
 	local segs, totalSec = TrackBuilder.resolveSegments(spline, spec)
 	local gaps, jumpNotes = TrackBuilder.planJumps(spline, segs)
-	local buildReport = TrackBuilder.build({ closed = closed, gaps = gaps })
-	local content = TrackBuilder.buildContent(spline, segs, spec, gaps, totalSec)
-	local gateTs = TrackBuilder.bakeCheckpoints(spline, segs)
+	local bridges = TrackBuilder.planBridges(spline, segs, totalSec)
+	-- 路面/摆件的避让区 = 跳跃断口 ∪ 墙桥断口
+	local allGaps = {}
+	for _, g in ipairs(gaps) do allGaps[#allGaps + 1] = g end
+	for _, b in ipairs(bridges) do allGaps[#allGaps + 1] = b end
+	local buildReport = TrackBuilder.build({ closed = closed, gaps = allGaps })
+	local content = TrackBuilder.buildContent(spline, segs, spec, allGaps, totalSec, bridges)
+	local gateTs = TrackBuilder.bakeCheckpoints(spline, segs, spec)
+	-- P3f 结局大门:FinishT 属性(RaceTimer/机器人同源)+ 拱门;其后路段=冲线滑行区
+	if spec.finishAt then
+		local trackFolder = workspace.NeonRun:FindFirstChild(TRACK_FOLDER)
+		if trackFolder then trackFolder:SetAttribute("FinishT", spec.finishAt) end
+		TrackBuilder.buildFinishGate(spline, spec.finishAt)
+	end
 	local anchorResult = TrackBuilder.bakeAnchors(spline)
-	local lint = TrackBuilder.lintAll(spline, segs, content, gaps, spec, totalSec)
+	local lint = TrackBuilder.lintAll(spline, segs, content, gaps, spec, totalSec, bridges)
 	local robot = nil
 	if not opts.skipRobot then
-		robot = TrackBuilder.robotRun(spline, { closed = closed })
+		robot = TrackBuilder.robotRun(spline, { closed = closed, bridges = bridges, finishT = spec.finishAt })
 	end
 	return {
 		kind = "compile",
@@ -691,8 +1082,9 @@ function TrackBuilder.formatReport(r)
 		local c, l = r.content, r.lint
 		lines[#lines + 1] = string.format("[TrackBuilder.compile] 弧长 %.0f studs | 路面 %d 段(断口跳过 %d)",
 			r.length, r.build.segments, r.build.gapSkipped or 0)
-		lines[#lines + 1] = string.format("  内容:晶 %d / 核 %d / 敌 %d / 闸 %d / 墙段 %d / 唇 %d(入弯自动顺移 %d 处)",
-			c.crystals, c.cores, c.shooters, c.gates, c.walls, c.lips, c.moved)
+		lines[#lines + 1] = string.format("  内容:晶 %d / 核 %d / 敌 %d / 闸 %d / 墙段 %d / 唇 %d(入弯自动顺移 %d 处;含救济 晶%d+核%d;蛇形墙带 %d 段;裙板 %d 片)",
+			c.crystals, c.cores, c.shooters, c.gates, c.walls, c.lips, c.moved,
+			c.mercyCrystals or 0, c.mercyCores or 0, c.slalomBands or 0, c.skirts or 0)
 		lines[#lines + 1] = string.format("  P4:分段门 %d(Track.CheckpointTs)| 锚点 %d(剔 %d)",
 			#r.gateTs, r.anchors.kept, r.anchors.rejected)
 		lines[#lines + 1] = string.format("  节拍:实际 ≈%.0fs(冲刺参考速)vs 模板 %.0fs——差异由人裁,不算错",
@@ -709,6 +1101,21 @@ function TrackBuilder.formatReport(r)
 				j.dCruise and string.format("%.1f", j.dCruise) or "落不到", j.dSprint,
 				j.dFlow and string.format("%.1f", j.dFlow) or "?", j.lip and string.format("(唇 %d°)", j.lip) or "")
 		end
+		for _, b in ipairs(l.bridges or {}) do
+			lines[#lines + 1] = string.format("  %s 墙桥@段%d:路断 %.0f+墙带余量 ±%.0f | 不可跳 %s(心流平切飞距 %s)| 墙件 %s",
+				(b.unjumpable and b.wallCovered and b.wallsBuilt) and "✅" or "❌",
+				b.segIndex, b.gapLen, b.margin,
+				b.unjumpable and "✓" or "✗", b.dFlow and string.format("%.1f", b.dFlow) or "落不进",
+				b.wallsBuilt and "已铺" or "缺失")
+		end
+		for _, f in ipairs(l.forkNotes or {}) do
+			lines[#lines + 1] = string.format("  %s 跳台捷径@段%d:楔 %d°+缺口 %.0f | 冲刺同高跳 %.1f ✓/巡航 %.1f ✗(失败落回主线)| 高架 %.0f studs",
+				f.pass and "✅" or "❌", f.segIndex, f.lipDeg, f.gap, f.rangeSprint, f.rangeCruise, f.deckLen)
+		end
+		if l.sprintBudget then
+			lines[#lines + 1] = string.format("  冲刺预算:保底供给 %.0f 能量 ≈ %.1fs 冲刺(开局+晶+核+闸,弹反/斩敌另计);需冲刺断口 %d 处(~2.5s/处)",
+				l.sprintBudget.energy, l.sprintBudget.sec, l.sprintBudget.jumps)
+		end
 		if l.wallChainMaxTurn > 0 then
 			lines[#lines + 1] = string.format("  墙链最大相邻夹角 %.1f°(交接上限 8°)%s",
 				l.wallChainMaxTurn, l.wallChainMaxTurn > 8 and " ❌ 弯太急,墙链会断——挪 CP 或缩 wallSec" or " ✅")
@@ -719,9 +1126,10 @@ function TrackBuilder.formatReport(r)
 		for _, n in ipairs(l.notes or {}) do lines[#lines + 1] = "  ⚠️ " .. n end
 		for _, n in ipairs(r.jumpNotes or {}) do lines[#lines + 1] = "  ⚠️ " .. n end
 		if r.robot then
-			lines[#lines + 1] = string.format("  机器人:%s %.1fs(重生 %d 次;奖牌线草稿参考,标定归作者跑)",
+			lines[#lines + 1] = string.format("  机器人:%s %.1fs(重生 %d 次%s;奖牌线草稿参考,标定归作者跑)",
 				r.robot.finished and "✅ 完赛" or "❌ 未完赛(预算 " .. r.robot.budget .. " 步)",
-				r.robot.timeSec, r.robot.resets)
+				r.robot.timeSec, r.robot.resets,
+				(r.robot.bridgeSkips or 0) > 0 and string.format(",墙桥跳渡 %d 处=墙带段豁免", r.robot.bridgeSkips) or "")
 		end
 		lines[#lines + 1] = "  " .. string.rep("—", 30)
 		r = r.lint.curve   -- 尾接弯道 lint 详情
