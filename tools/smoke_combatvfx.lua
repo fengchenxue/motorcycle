@@ -9,7 +9,8 @@ NEON RUN — 战斗/拾取/冲刺表现层冒烟(ADR-50/50a;Edit 固定 dt=1/60)
   ⑦ 能量核装饰:挂卫星×4;隐没沿不重爆(核之死由 hit 爆点覆盖);隐现同步
   ⑧ 冲刺二件(BikeVFX,ADR-50e 底光已删):尾焰 Rate/尾迹开关随 sprinting;心流=×1.4+变金
   ⑨ ShooterField telegraph 事件:充能相位即发+预告结束必发弹
-  ⑩ destroy 零残留(弧/爆点/敌饰/物饰/冲刺件全清)
+  ⑫ 闸门碎裂(ADR-50j):斩闸=碎片按 GateShardCount 生成+外抛+到期零残留+旋钮 0=关+玻璃音就位
+  ⑩ destroy 零残留(弧/爆点/敌饰/物饰/冲刺件/活碎片全清;⑫ 末尾故意留活碎片给本组验清扫)
   ⑪ 配置还原回快照
 音量全钉 0(Edit 静音=顺带断言 0=静);断言帧留浮点余量(坑 18);
 钉扎先存后还原同脚本闭环(坑 27/32);临时件按名清理幂等(坑 28);require(Clone)(坑 15)。
@@ -43,8 +44,8 @@ local PIN = {
 	VFX_HitBurstParticles = 24, VFX_HitLightBrightness = 8, VFX_MagnetBeamSec = 0.12,
 	VFX_EnemySatSpinDeg = 90, VFX_EnemyBobStuds = 0.6, VFX_BulletTrailSec = 0.22,
 	VFX_CrystalSpinDeg = 160, VFX_CoreSpinDeg = 60, VFX_ItemBobStuds = 0.35,
-	VFX_SprintJetRate = 90, VFX_SprintWakeSec = 0.3,
-	Sound_SlashVolume = 0, Sound_HitVolume = 0, Sound_ParryVolume = 0,
+	VFX_SprintJetRate = 90, VFX_SprintWakeSec = 0.3, VFX_GateShardCount = 12,
+	Sound_SlashVolume = 0, Sound_HitVolume = 0, Sound_ParryVolume = 0, Sound_GateVolume = 0,
 }
 local saved = {}
 for k in pairs(PIN) do saved[k] = hInst:GetAttribute(k) end
@@ -267,6 +268,36 @@ do
 	enemy:Destroy()
 end
 
+-- ⑫ 闸门碎裂(ADR-50j)
+do
+	for _ = 1, 20 do atk:step(DT); cvfx:step(DT) end -- 硬直归零
+	local gate = mkPart("_gate", ORIGIN + Vector3.new(0, 0, -8))
+	gate.Size = Vector3.new(40, 14, 1)
+	atk:registerTarget(gate, { kind = "gate" })
+	atk:attack()
+	cvfx:step(DT)
+	ok("⑫a 斩闸=碎片按 GateShardCount 生成", census("GateShard") == 12 and #cvfx.shards == 12,
+		census("GateShard") .. "/" .. #cvfx.shards)
+	ok("⑫b 玻璃碎音就位(音量 0=静不播)", cvfx.sounds.gate ~= nil
+		and cvfx.sounds.gate.SoundId == "rbxassetid://9114592102" and cvfx.sounds.gate.Playing == false,
+		tostring(cvfx.sounds.gate and cvfx.sounds.gate.SoundId))
+	local probe = cvfx.shards[1].part
+	local z0 = probe.Position.Z
+	for _ = 1, 18 do cvfx:step(DT) end -- 0.3s:仍活且沿车头(-Z)抛出
+	ok("⑫c 碎片外抛运动(0.3s 仍活+车头向位移)", #cvfx.shards == 12 and probe.Position.Z < z0 - 2,
+		#cvfx.shards .. "/" .. string.format("%.2f", probe.Position.Z - z0))
+	for _ = 1, 30 do cvfx:step(DT) end -- 累计 0.8s > ttl 0.7:全清
+	ok("⑫d 到期零残留", #cvfx.shards == 0 and census("GateShard") == 0, census("GateShard"))
+	local gate2 = mkPart("_gate2", ORIGIN + Vector3.new(4, 0, -8))
+	gate2.Size = Vector3.new(40, 14, 1)
+	hInst:SetAttribute("VFX_GateShardCount", 0)
+	cvfx:_gateShatter(gate2)
+	ok("⑫e ShardCount=0=关", #cvfx.shards == 0, #cvfx.shards)
+	hInst:SetAttribute("VFX_GateShardCount", 12)
+	cvfx:_gateShatter(gate2) -- 留一批活碎片,⑩ 验 destroy 清扫
+	gate:Destroy(); gate2:Destroy()
+end
+
 -- ⑩ destroy 零残留
 do
 	cvfx:destroy()
@@ -275,11 +306,11 @@ do
 		local n = d.Name
 		if n == "CombatHitBurst" or n == "CombatMagnetBeam" or n == "SlashArc"
 			or n == "EnemyFxSat" or n == "EnemyFxDisc" or n == "EnemyFxLight"
-			or n == "ItemFxShard" or n == "ItemFxLight" then
+			or n == "ItemFxShard" or n == "ItemFxLight" or n == "GateShard" then
 			resid += 1
 		end
 	end
-	ok("⑩ destroy 零残留(弧/爆点/敌饰/物饰全清)", resid == 0, resid .. " 件残留")
+	ok("⑩ destroy 零残留(弧/爆点/敌饰/物饰/活碎片全清)", resid == 0, resid .. " 件残留")
 	atk:destroy()
 end
 

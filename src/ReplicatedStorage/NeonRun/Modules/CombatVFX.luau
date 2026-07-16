@@ -33,7 +33,10 @@ local SFX = {
 	Swing = "rbxassetid://9114377700",  -- Fast Whoosh Bys Air Mass Pass Bys 3(与擦墙音 ...713 区分)〔旧: rbxasset://sounds/swordslash.wav〕
 	Hit = "rbxassetid://9125672726",    -- Metal Impact Sledge Hammer(1.3s 重击)〔旧: rbxasset://sounds/swordlunge.wav〕
 	Parry = "rbxassetid://9125819216",  -- Robot Impact Metal Clangs(1.1s 铿锵)〔旧: rbxasset://sounds/electronicpingshort.wav〕
+	Gate = "rbxassetid://9114592102",   -- Glass Breaks 11(2.2s 玻璃碎裂,ADR-50j 闸门斩开)
 }
+
+local GATE_SHARD_TTL = 0.7 -- 闸门碎片寿命(秒);淡出走尾段 45%
 
 local CombatVFX = {}
 CombatVFX.__index = CombatVFX
@@ -89,6 +92,7 @@ function CombatVFX.new(model, ctrl, attack, shooters)
 	self.ctrl = ctrl
 	self.root = model.PrimaryPart
 	self.bursts = {}            -- 一次性爆点件 { part, ttl, light }
+	self.shards = {}            -- 闸门碎片 { part, vel, spin, ttl }(ADR-50j;纯视觉,假重力不进物理)
 	self.enemyFx = {}           -- [enemyPart] = { sats={}, disc, light, phase, charge, hidden }
 	self.itemFx = {}            -- [itemPart] = { kind="crystal"|"core", shards={}, light, hidden, bobPhase }
 	self.bulletFolder = shooters and shooters.folder or nil
@@ -100,6 +104,7 @@ function CombatVFX.new(model, ctrl, attack, shooters)
 		swing = mkSound(self.root, SFX.Swing),
 		hit = mkSound(self.root, SFX.Hit),
 		parry = mkSound(self.root, SFX.Parry),
+		gate = mkSound(self.root, SFX.Gate),
 	}
 
 	-- 攻击事件(AttackSystem):挥刀/命中/空挥/弹反
@@ -109,10 +114,15 @@ function CombatVFX.new(model, ctrl, attack, shooters)
 		end)
 		attack:on("hit", function(e)
 			self:_playSound("hit", self.cfg.get("Sound", "HitVolume"))
-			for _, part in ipairs(e.parts or {}) do
+			for i, part in ipairs(e.parts or {}) do
 				if part:IsA("BasePart") then
 					self:_burst(part.Position, part.Color)
 					self:_magnetBeam(part.Position)
+					-- 闸门斩开=碎裂动画+玻璃碎音(ADR-50j;kinds 与 parts 同序,AttackSystem 同环生成)
+					if e.kinds and e.kinds[i] == "gate" then
+						self:_gateShatter(part)
+						self:_playSound("gate", self.cfg.get("Sound", "GateVolume"))
+					end
 				end
 			end
 		end)
@@ -189,6 +199,33 @@ function CombatVFX:_magnetBeam(pos)
 	beam.Transparency = NumberSequence.new(0.1)
 	beam.Parent = p
 	table.insert(self.bursts, { part = p, ttl = sec, light = nil, homeAtt = a0 })
+end
+
+-- 闸门碎裂(ADR-50j):按闸门板面随机采样切 N 块霓虹碎片,沿车头方向外抛+自旋+尾段淡出。
+-- 碎片=Anchored 纯视觉件(CanCollide/Query/Touch 全关),假重力只写渲染——不进物理、不产生任何速度(铁律)。
+-- 闸门本体的隐没仍归 AttackSystem.defaultKill(判定与表现分离);ShardCount=0=整体关(移动端阀)。
+function CombatVFX:_gateShatter(part)
+	local C = self.cfg.get
+	local n = C("VFX", "GateShardCount")
+	if n <= 0 then return end
+	local size, cf, col = part.Size, part.CFrame, part.Color
+	local fwd = self.root.CFrame.LookVector
+	for _ = 1, n do
+		local u, v = math.random() - 0.5, math.random() - 0.5
+		local shard = mkPart("GateShard",
+			Vector3.new(0.6 + math.random() * 2.2, 0.6 + math.random() * 2.2, math.max(size.Z * 0.6, 0.2)), col, 0.1)
+		shard.CFrame = cf * CFrame.new(u * size.X, v * size.Y, 0)
+			* CFrame.Angles(math.random() * 0.6, math.random() * 0.6, math.random() * 0.6)
+		shard.Parent = workspace
+		table.insert(self.shards, {
+			part = shard,
+			vel = fwd * (30 + math.random() * 25)                        -- 主抛=车头向(斩开冲过去的方向)
+				+ (cf.RightVector * u + cf.UpVector * v) * 26            -- 外扩=离板心放射
+				+ Vector3.new(0, 6 + math.random() * 10, 0),             -- 微上抛
+			spin = Vector3.new(math.random() - 0.5, math.random() - 0.5, math.random() - 0.5) * 12,
+			ttl = GATE_SHARD_TTL,
+		})
+	end
 end
 
 -- 敌人装饰:轨道卫星×3 + 悬浮盘 + 核心光(子件挂本体下,part 销毁即随葬;位置每帧绝对写)
@@ -268,6 +305,23 @@ function CombatVFX:step(dt)
 			if b.homeAtt then b.homeAtt:Destroy() end
 			b.part:Destroy()
 			table.remove(self.bursts, i)
+		end
+	end
+
+	-- ── 闸门碎片:外抛+假重力+自旋+尾段淡出(ADR-50j;到期/闸门树亡即清) ──
+	for i = #self.shards, 1, -1 do
+		local s = self.shards[i]
+		s.ttl -= dt
+		if s.ttl <= 0 or not s.part.Parent then
+			s.part:Destroy()
+			table.remove(self.shards, i)
+		else
+			s.vel -= Vector3.new(0, 90 * dt, 0)
+			s.part.CFrame = CFrame.new(s.part.Position + s.vel * dt)
+				* s.part.CFrame.Rotation
+				* CFrame.Angles(s.spin.X * dt, s.spin.Y * dt, s.spin.Z * dt)
+			local k = s.ttl / GATE_SHARD_TTL
+			if k < 0.45 then s.part.Transparency = 0.1 + (1 - k / 0.45) * 0.9 end
 		end
 	end
 
@@ -393,6 +447,10 @@ function CombatVFX:destroy()
 		b.part:Destroy()
 	end
 	self.bursts = {}
+	for i = #self.shards, 1, -1 do
+		self.shards[i].part:Destroy()
+	end
+	self.shards = {}
 	for part, fx in pairs(self.enemyFx) do
 		for _, s in ipairs(fx.sats) do s:Destroy() end
 		if fx.disc then fx.disc:Destroy() end

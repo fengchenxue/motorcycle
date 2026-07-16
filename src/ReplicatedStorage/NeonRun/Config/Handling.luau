@@ -135,10 +135,20 @@ return {
 		IgnitionVolume = 0.6,
 		WhooshVolume = 0.7,     -- 擦墙呼啸
 		WhooshCooldownSec = 0.8,
-		-- 战斗音(CombatVFX,ADR-50;占位=引擎内置音,正式素材=官方音频库替换,0=静)
-		SlashVolume = 0.6,      -- 挥刀 whoosh(内置 swordslash)
-		HitVolume = 0.7,        -- 命中斩(内置 swordlunge)
-		ParryVolume = 0.8,      -- 弹反叮(内置 electronicping)
+		-- 战斗音(CombatVFX;ADR-50i 已转官方正式素材,assetId 见模块顶 SFX 表,0=静)
+		SlashVolume = 0.6,      -- 挥刀 whoosh(官方 9114377700)
+		HitVolume = 0.7,        -- 命中斩(官方 9125672726)
+		ParryVolume = 0.8,      -- 弹反铿(官方 9125819216)
+		GateVolume = 0.7,       -- 闸门碎裂玻璃音(官方 9114592102,ADR-50j)
+		-- 流程与状态音(RaceSFX,ADR-50j;assetId 见模块顶 SLOTS 表,0=静)
+		PickupVolume = 0.5,     -- 水晶拾取叮(仅入账>0 时响,满箱不捕获无声=真实反馈)
+		CountdownVolume = 0.6,  -- 倒计时 beep(GO=同件升调 1.4)
+		FinishVolume = 0.7,     -- 终点 sting(临时=beep 族低速,正经终点乐待选品)
+		PlayerHitVolume = 0.8,  -- 吃弹重击
+		RespawnVolume = 0.5,    -- 重生回取 whoosh
+		FlowVolume = 0.6,       -- 心流升档 surge(点火 whoosh 升调 1.3)
+		EmptyClickVolume = 0.5, -- 空箱干点火咔哒(M8.1 欠账清)
+		EnemyFireVolume = 0.35, -- 敌火 pew(内置占位变调;正式激光待选品)
 	},
 	VFX = {
 		-- 冲刺速度线(BikeVFX 表现层):相机空间放射线,tele.sprinting 淡入淡出,贴图由远及近流动
@@ -170,6 +180,7 @@ return {
 		SprintVignette = 0.45,      -- 冲刺暗角最大不透明度(双渐变近似径向;0=关;心流叠脉动)
 		SprintJetRate = 90,         -- 冲刺尾焰粒子率(0=关;心流自动 ×1.4+变金)
 		SprintWakeSec = 0.3,        -- 冲刺地面尾迹存续(0=关;心流变金)
+		GateShardCount = 12,        -- 闸门碎裂碎片数(ADR-50j:斩开=板面切片外抛自旋淡出;0=关,移动端阀)
 	},
 	Combat = {
 		-- 斩击判定(ADR-16):按键帧对注册目标做车体局部空间盒查询,禁 Touched
@@ -181,7 +192,7 @@ return {
 		ParryWindowSec = 0,     -- 独立弹反窗应急开关(ADR-48):0=不区分(弹反与斩击同窗,人类拍板 2026-07-16);>0=子弹只在出刀后前段可弹(若试玩发现弹反白送再启)
 		RecoverySec = 0.3,      -- 攻击间隔=空挥硬直(ADR-14:失误代价只在错过能量,永不减速;判定窗/间隔=连打覆盖率,0.25/0.3≈83%=人类拍板档)
 		TelegraphRangeStuds = 55, -- 目标进入此距离触发音画预告(HUD/音效,非判定)
-		DebugHitbox = true,     -- 【临时调试】斩击判定盒可视化(青=平时/绿=盒内有目标/白=命中帧;正式版前移除)
+		DebugHitbox = false,    -- 【临时调试】斩击判定盒可视化(青=平时/绿=盒内有目标/白=命中帧;正式版前移除;P4d 人类直令默认关)
 		StraightMaxTurnDeg = 3, -- 布置 lint:目标所在点 8studs 转角 < 此值才算直线段
 		GateLinkWindowSec = 2.5, -- V2 预埋:节点联动墙开启时长(ADR-19)
 		-- 远程敌与快照弹道(ADR-21/22)
