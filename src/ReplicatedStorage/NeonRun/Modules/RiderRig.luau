@@ -7,8 +7,12 @@
 --   与脚本就绪的竞态、Humanoid 晚到)全部免疫(坑 26/33;2026-07-16 实测事件式在 Play 竞态漏挂,已改)。
 -- 动画=程序化两层(ADR-50c,零动画资产):
 --   · 静态骑姿=Motor6D C0 乘偏移(挂载时一次):左手前伸握车把/右臂自然下垂**拖剑**(刃尖朝后下)/前倾跨坐;
---   · 挥砍=Motor6D.Transform 通道逐帧(仅挥砍期写):起手上扬(肩+肘+腰)→横扫(时长=VFX_SlashSweepSec)
+--   · 双骨架通道(坑 35):Animator 存在即每帧覆写 Transform(零动画轨也覆写)——程序化姿态/挥砍走
+--     "位形通道":经典骨架(Motor6D)=写 C0;**新版骨架(AnimationConstraint,2026 平台迁移已实测上线)**
+--     =写其 Part0 侧 RigAttachment.CFrame(动画系统不碰 attachment,语义=C0 等价物);
+--   · 挥砍=位形通道逐帧(仅挥砍期写):起手上扬(肩+肘+腰)→横扫(时长=VFX_SlashSweepSec)
 --     →持窗定格("刀在外面",窗=Combat_InputBufferSec,与剑光/判定同一事实源)→回位垂剑;
+--   · 剑特效(ADR-50d):挥砍刀光 Trail(VFX_SwordTrailSec,0=关)/锋刃呼吸辉光+刃光源(挥砍增亮)/心流=剑变金;
 --   · 拖剑火花=刃尖发射器,地面高速且非挥砍期喷(VFX_SwordDragSparkRate,0=关)。
 -- VFX_RiderEnabled=0 时 TestDrive 走旧"停机坪"路径。
 -- 只写渲染层(关节/焊接),物理零参与;姿态角=截图迭代版,观感微调改下方 POSE 表。
@@ -16,6 +20,7 @@ local RS = game:GetService("ReplicatedStorage")
 
 local SADDLE = CFrame.new(0, 1.7, 1.15)            -- HRP 在 BikeRoot 局部系的鞍座位(实测 Seat 中心 z=+1.9,前倾骑姿取 1.15;朝 -Z 同向)
 local ARC_COLOR = Color3.fromRGB(90, 220, 255)     -- 锋刃霓虹青(与剑光同族)
+local FLOW_COLOR = Color3.fromRGB(255, 200, 80)    -- 心流金(与冲刺三件同语义,ADR-50a)
 local BLADE_LEN = 4.6                              -- 长剑刃长(studs)
 local DRAG_MIN_SPEED = 40                          -- 拖剑火花的最低车速(studs/s)
 
@@ -106,6 +111,29 @@ local function buildSword()
 	tip.Name = "SwordTip"
 	tip.Position = Vector3.new(0, BLADE_LEN / 2, 0)
 	tip.Parent = edge
+	-- 刀光 Trail(护手端→刃尖;仅挥砍期启用)+刃光源(挥砍增亮)
+	local baseAtt = Instance.new("Attachment")
+	baseAtt.Name = "SwordBase"
+	baseAtt.Position = Vector3.new(0, -BLADE_LEN / 2, 0)
+	baseAtt.Parent = edge
+	local trail = Instance.new("Trail")
+	trail.Name = "SwordTrail"
+	trail.Attachment0 = baseAtt
+	trail.Attachment1 = tip
+	trail.Color = ColorSequence.new(Color3.new(1, 1, 1), ARC_COLOR)
+	trail.LightEmission = 1
+	trail.LightInfluence = 0
+	trail.Transparency = NumberSequence.new({ NumberSequenceKeypoint.new(0, 0.05), NumberSequenceKeypoint.new(1, 1) })
+	trail.WidthScale = NumberSequence.new({ NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0.4) })
+	trail.FaceCamera = true
+	trail.Enabled = false
+	trail.Parent = edge
+	local light = Instance.new("PointLight")
+	light.Name = "SwordLight"
+	light.Color = ARC_COLOR
+	light.Brightness = 1.5
+	light.Range = 8
+	light.Parent = blade
 	local spark = Instance.new("ParticleEmitter")
 	spark.Name = "DragSpark"
 	spark.Texture = "rbxasset://textures/particles/sparkles_main.dds"
@@ -122,7 +150,7 @@ local function buildSword()
 	spark.Enabled = true
 	spark.Parent = tip
 	m.PrimaryPart = grip
-	return m, grip, spark
+	return m, grip, { spark = spark, edge = edge, trail = trail, light = light }
 end
 
 function RiderRig.new(player, bikeModel, attack, ctrl)
@@ -201,18 +229,31 @@ function RiderRig:mount(char)
 	weld.Parent = hrp
 	m.weld = weld
 
-	-- 骑姿:按 rig 类型乘偏移,存原值供还原;记挥砍关节表
+	-- 骑姿:按 rig 类型乘偏移,存原值供还原;记挥砍关节表。
+	-- 双骨架(坑 35):Motor6D=C0 通道;AnimationConstraint(新版)=Part0 侧 RigAttachment.CFrame 通道
 	local isR15 = humanoid.RigType == Enum.HumanoidRigType.R15
 	local pose = isR15 and POSE_R15 or POSE_R6
 	local swingSet = isR15 and SWING_R15 or SWING_R6
-	for _, d in ipairs(char:GetDescendants()) do
+	local function jointHandle(d)
 		if d:IsA("Motor6D") then
-			local off = pose[d.Name]
-			if off then
-				m.joints[d] = d.C0
-				d.C0 = d.C0 * off
+			return { set = function(cf) d.C0 = cf end, get = function() return d.C0 end, alive = function() return d.Parent ~= nil end }
+		elseif d.ClassName == "AnimationConstraint" and d.Attachment0 then
+			local att = d.Attachment0
+			return { set = function(cf) att.CFrame = cf end, get = function() return att.CFrame end, alive = function() return att.Parent ~= nil end }
+		end
+		return nil
+	end
+	for _, d in ipairs(char:GetDescendants()) do
+		if d:IsA("Motor6D") or d.ClassName == "AnimationConstraint" then
+			local h = jointHandle(d)
+			if h then
+				local off = pose[d.Name]
+				if off then
+					m.joints[h] = h.get()
+					h.set(m.joints[h] * off)
+				end
+				if swingSet[d.Name] then m.swing[d.Name] = h end
 			end
-			if swingSet[d.Name] then m.swing[d.Name] = d end
 		end
 	end
 	m.swingSet = swingSet
@@ -220,7 +261,7 @@ function RiderRig:mount(char)
 	-- 长剑入右手(垂臂拖剑握持)
 	local hand = char:FindFirstChild(isR15 and "RightHand" or "Right Arm")
 	if hand then
-		local sword, grip, spark = buildSword()
+		local sword, grip, fx = buildSword()
 		sword.Parent = char
 		local motor = Instance.new("Motor6D")
 		motor.Name = "SwordGrip"
@@ -229,8 +270,16 @@ function RiderRig:mount(char)
 		motor.Parent = hand
 		m.sword = sword
 		m.gripMotor = motor
-		m.spark = spark
+		m.spark = fx.spark
+		m.edge = fx.edge
+		m.swordTrail = fx.trail
+		m.swordLight = fx.light
+		m.swordFlow = nil            -- 上次写入的心流态(nil=强制首写颜色)
 	end
+
+	-- 挥砍基准=骑姿态位形(坑 35:位形通道,基准即姿态定值)
+	m.swingBase = {}
+	for name, h in pairs(m.swing) do m.swingBase[name] = h.get() end
 
 	self.mounted = m
 end
@@ -239,11 +288,8 @@ function RiderRig:unmount()
 	local m = self.mounted
 	if not m then return end
 	for _, c in ipairs(m.conns) do c:Disconnect() end
-	for joint, c0 in pairs(m.joints) do
-		if joint.Parent then joint.C0 = c0; joint.Transform = CFrame.identity end
-	end
-	for _, joint in pairs(m.swing) do
-		if joint.Parent then joint.Transform = CFrame.identity end
+	for h, base in pairs(m.joints) do
+		if h.alive() then h.set(base) end
 	end
 	if m.gripMotor then m.gripMotor:Destroy() end
 	if m.sword then m.sword:Destroy() end
@@ -258,14 +304,14 @@ function RiderRig:unmount()
 	self.swingT = -1
 end
 
--- 挥砍关节写入:k∈[0,1] 在 {windup,follow} 间插值;nil=回 identity
+-- 挥砍关节写入(位形通道):位形 = 骑姿基准 × lerp(from,to);0 号=identity(=回骑姿)
 local function applySwing(m, fromIdx, toIdx, k)
-	for name, joint in pairs(m.swing) do
-		if joint.Parent then
+	for name, h in pairs(m.swing) do
+		if h.alive() then
 			local pair = m.swingSet[name]
 			local from = fromIdx == 0 and CFrame.identity or pair[fromIdx]
 			local to = toIdx == 0 and CFrame.identity or pair[toIdx]
-			joint.Transform = from:Lerp(to, k)
+			h.set(m.swingBase[name] * from:Lerp(to, k))
 		end
 	end
 end
@@ -280,16 +326,42 @@ function RiderRig:step(dt)
 	local m = self.mounted
 	if not m then return end
 
-	-- 拖剑火花:贴地高速且非挥砍期(剑举起来了就不该冒火)
-	if m.spark then
-		local rate = 0
-		if self.ctrl and self.swingT < 0 then
-			local tele = self.ctrl.getTelemetry and self.ctrl:getTelemetry()
-			if tele and tele.grounded and (tele.speed or 0) >= DRAG_MIN_SPEED then
+	-- 剑层(ADR-50d):拖地火花/刀光 Trail/锋刃呼吸/心流变金
+	if m.sword then
+		local swinging = self.swingT >= 0
+		local tele = self.ctrl and self.ctrl.getTelemetry and self.ctrl:getTelemetry() or nil
+		-- 拖剑火花:贴地高速且非挥砍期(剑举起来了就不该冒火)
+		if m.spark then
+			local rate = 0
+			if tele and not swinging and tele.grounded and (tele.speed or 0) >= DRAG_MIN_SPEED then
 				rate = self.cfg.get("VFX", "SwordDragSparkRate")
 			end
+			if m.spark.Rate ~= rate then m.spark.Rate = rate end
 		end
-		if m.spark.Rate ~= rate then m.spark.Rate = rate end
+		-- 心流=剑变金(锋/刀光/光源同步;仅变化帧写)
+		local flow = tele and tele.flowBoost == true or false
+		if flow ~= m.swordFlow then
+			local col = flow and FLOW_COLOR or ARC_COLOR
+			m.edge.Color = col
+			m.swordLight.Color = col
+			m.swordTrail.Color = ColorSequence.new(Color3.new(1, 1, 1), col)
+			m.swordFlow = flow
+		end
+		-- 刀光 Trail 仅挥砍期;锋刃挥砍全亮否则呼吸;光源挥砍增亮
+		local trailSec = self.cfg.get("VFX", "SwordTrailSec")
+		local trailOn = swinging and trailSec > 0
+		if m.swordTrail.Enabled ~= trailOn then
+			m.swordTrail.Lifetime = trailSec
+			m.swordTrail.Enabled = trailOn
+		end
+		if swinging then
+			m.edge.Transparency = 0
+			m.swordLight.Brightness = 4
+		else
+			m.edge.Transparency = 0.1 + 0.13 * (math.sin(self._breathT or 0) + 1) * 0.5
+			m.swordLight.Brightness = 1.5
+		end
+		self._breathT = (self._breathT or 0) + dt * 4
 	end
 
 	if self.swingT < 0 then return end

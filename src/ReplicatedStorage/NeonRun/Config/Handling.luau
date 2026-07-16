@@ -164,6 +164,7 @@ return {
 		ItemBobStuds = 0.35,        -- 拾取物装饰悬浮起伏幅度
 		RiderEnabled = 1,           -- 骑手上车(ADR-50b):玩家 avatar 骑车+长剑;0=回旧停机坪(重进 Play 生效)
 		SwordDragSparkRate = 40,    -- 拖剑火花率(ADR-50c:垂剑贴地高速时刃尖冒火;0=关)
+		SwordTrailSec = 0.25,       -- 挥砍刀光 Trail 存续(ADR-50d:白→刃色渐变刀光带,心流随剑变金;0=关)
 		SprintJetRate = 90,         -- 冲刺尾焰粒子率(0=关;心流自动 ×1.4+变金)
 		SprintWakeSec = 0.3,        -- 冲刺地面尾迹存续(0=关;心流变金)
 		UnderglowBrightness = 4,    -- 车底霓虹光强(平时 ×0.3 微亮,冲刺全亮;0=关)
