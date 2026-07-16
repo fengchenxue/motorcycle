@@ -109,10 +109,17 @@ function CameraRig:update(dt)
 	-- 水平横向分量单独低通(比 FollowLag 软)→ 转向/变线时车在画面里横移、镜头缓缓回中;
 	-- 0=关=整体 lerp 旧行为逐位不变;墙态不拆(墙上"横向"≠屏幕横向,走旧路径)
 	local dist = self.flow and C("Camera", "FlowDistance") or C("Camera", "Distance")
+	local latDir = sl:Cross(Vector3.yAxis)
 	local desired = target - sl * dist + rolledUp * C("Camera", "Height")
+	-- ADR-44⑧ 转向横移方向(人类四轮之问"镜头平移同向还是反向"):
+	-- 正=镜头向转弯方向领先(车偏画面外侧、看穿弯内);负=反向加强"车冲向弯内";0=关=纯滞后语义(现状)。
+	-- 用渐变后 steer,再经 FollowLag/LatLag 二次平滑,无需新时间常数。
+	local lead = C("Camera", "SteerLeadStuds") or 0
+	if lead ~= 0 and not tele.wallRiding and latDir.Magnitude > 1e-4 then
+		desired += latDir.Unit * (-(tele.steer or 0) * lead)
+	end
 	local posAlpha = 1 - math.exp(-dt / math.max(C("Camera", "FollowLagSec"), 1e-3))
 	local latSec = C("Camera", "LatLagSec") or 0
-	local latDir = sl:Cross(Vector3.yAxis)
 	if latSec > 0 and not tele.wallRiding and latDir.Magnitude > 1e-4 then
 		latDir = latDir.Unit
 		local delta = desired - self.camPos
