@@ -164,6 +164,8 @@ return {
 		ItemBobStuds = 0.35,        -- 拾取物装饰悬浮起伏幅度
 		RiderEnabled = 1,           -- 骑手上车(ADR-50b):玩家 avatar 骑车+长剑;0=回旧停机坪(重进 Play 生效)
 		SwordStreakSec = 0.35,      -- 刃尖窄条拖痕存续(ADR-50f:剑痕挂剑上,挥砍期随刃尖划弧;0=关)
+		SprintUIAlpha = 0.85,       -- 冲刺 UI 动效总强度(ADR-50g 方案B包络:爆发0.3s→残留;0=关)
+		SprintUISustain = 0.18,     -- 爆发后的残留档 0~1(蓝本 SUSTAIN_LEVEL;0=只爆发不残留)
 		SprintJetRate = 90,         -- 冲刺尾焰粒子率(0=关;心流自动 ×1.4+变金)
 		SprintWakeSec = 0.3,        -- 冲刺地面尾迹存续(0=关;心流变金)
 	},

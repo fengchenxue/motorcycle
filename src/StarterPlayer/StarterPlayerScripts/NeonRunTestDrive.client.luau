@@ -21,6 +21,7 @@ local ShooterField = require(mods:WaitForChild("ShooterField"))
 local BikeVFX = require(mods:WaitForChild("BikeVFX"))
 local CombatVFX = require(mods:WaitForChild("CombatVFX"))
 local RiderRig = require(mods:WaitForChild("RiderRig"))
+local SprintUI = require(mods:WaitForChild("SprintUI"))
 local WallRideField = require(mods:WaitForChild("WallRideField"))
 local FixedStep = require(mods:WaitForChild("FixedStep"))
 local RespawnAnchors = require(mods:WaitForChild("RespawnAnchors"))
@@ -116,26 +117,8 @@ capFullToast.TextTransparency = 1
 capFullToast.ZIndex = 4
 capFullToast.Parent = energyBarBG
 
--- 速度线占位:两侧斜线,冲刺时渐显 + 闪烁
-local lines = {}
-do
-	local defs = {
-		{ x = 0.02, rot = 14 }, { x = 0.06, rot = 9 }, { x = 0.11, rot = 5 },
-		{ x = 0.98, rot = -14 }, { x = 0.94, rot = -9 }, { x = 0.89, rot = -5 },
-	}
-	for _, d in ipairs(defs) do
-		local f = Instance.new("Frame")
-		f.AnchorPoint = Vector2.new(0.5, 0.5)
-		f.Position = UDim2.new(d.x, 0, 0.5, 0)
-		f.Size = UDim2.new(0, 3, 0.85, 0)
-		f.Rotation = d.rot
-		f.BorderSizePixel = 0
-		f.BackgroundColor3 = Color3.fromRGB(180, 240, 255)
-		f.BackgroundTransparency = 1
-		f.Parent = gui
-		table.insert(lines, f)
-	end
-end
+-- 冲刺 UI 动效(ADR-50g,借鉴场上搁置的 SprintCameraFX 方案B包络):爆发+残留速度线/边缘流光/心流金+入流闪
+local sprintUI = SprintUI.new(gui)
 
 local bike = workspace:WaitForChild("Motorcycle"):Clone()
 bike.Name = "TestDriveBike"
@@ -468,13 +451,20 @@ do
 	end
 	for i, t in ipairs(checkpointTs) do
 		local cf = spline:GetCFrame(t)
-		local base, right, up = cf.Position, cf.RightVector, Vector3.new(0, 1, 0)
+		-- P3j(人类反馈"上部门框都是歪的"):CFrame.new=恒等旋转,横梁恒指世界 X——非轴向路段必歪;
+		-- 改水平航向系:柱=世界竖直,梁=lookAt 水平航向(X 轴自然横跨路面),坡上路段也水平端正
+		local look = cf.LookVector
+		local lookH = Vector3.new(look.X, 0, look.Z)
+		lookH = lookH.Magnitude > 1e-4 and lookH.Unit or Vector3.zAxis
+		local rightH = Vector3.new(-lookH.Z, 0, lookH.X)
+		local base, up = cf.Position, Vector3.new(0, 1, 0)
 		local model = Instance.new("Model")
 		model.Name = "SegGate" .. i
+		local beamPos = base + up * HEIGHT
 		local frames = {
-			mkBar(model, Vector3.new(BAR, HEIGHT, BAR), CFrame.new(base + right * HALF_W + up * (HEIGHT / 2))),
-			mkBar(model, Vector3.new(BAR, HEIGHT, BAR), CFrame.new(base - right * HALF_W + up * (HEIGHT / 2))),
-			mkBar(model, Vector3.new(HALF_W * 2 + BAR, BAR, BAR), CFrame.new(base + up * HEIGHT)),
+			mkBar(model, Vector3.new(BAR, HEIGHT, BAR), CFrame.new(base + rightH * HALF_W + up * (HEIGHT / 2))),
+			mkBar(model, Vector3.new(BAR, HEIGHT, BAR), CFrame.new(base - rightH * HALF_W + up * (HEIGHT / 2))),
+			mkBar(model, Vector3.new(HALF_W * 2 + BAR, BAR, BAR), CFrame.lookAt(beamPos, beamPos + lookH)),
 		}
 		model.Parent = archFolder
 		gateArches[i] = frames
@@ -717,9 +707,5 @@ RunS.RenderStepped:Connect(function(dt)
 		hitPop.TextTransparency = 1 - math.min(hitPopT * 3, 1)
 		hitPop.Position = UDim2.new(0.5, 0, 0.40 - (1 - hitPopT) * 0.05, 0)
 	end
-	local sprintOn = t.sprinting and t.speed > 100
-	for i, f in ipairs(lines) do
-		local target = sprintOn and (0.45 + 0.35 * math.abs(math.noise(clock * 9, i * 2.7))) or 1
-		f.BackgroundTransparency += (target - f.BackgroundTransparency) * math.min(dt * 10, 1)
-	end
+	sprintUI:step(dt, t)
 end)
