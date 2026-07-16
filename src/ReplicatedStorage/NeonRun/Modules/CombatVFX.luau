@@ -71,8 +71,8 @@ local function makeArc(rootPart)
 	beam.LightInfluence = 0
 	beam.Color = ColorSequence.new(ARC_COLOR)
 	beam.Transparency = NumberSequence.new(1)
-	beam.Width0 = 0.9; beam.Width1 = 0.9
-	beam.CurveSize0 = -4; beam.CurveSize1 = -4   -- 朝车前拱出新月弧
+	beam.Width0 = 0.3; beam.Width1 = 0.3           -- 细刃痕(ADR-50e 人类裁决:粗带挡视野→飘逸细痕)
+	beam.CurveSize0 = -5.5; beam.CurveSize1 = -5.5 -- 朝车前拱出新月弧(加深=更飘)
 	beam.Enabled = true                           -- 常开,可见性走透明度(BikeVFX 同法)
 	beam.Parent = rootPart
 	return { a0 = a0, a1 = a1, beam = beam }
@@ -302,8 +302,9 @@ function CombatVFX:step(dt)
 		local halfW = C("Combat", "HitboxSide") * C("VFX", "SlashWidthScale")
 		local fwd = -C("Combat", "HitboxForward") * 0.55
 		local k = math.clamp(self.arcT / sweep, 0.12, 1)   -- 中心张开到全宽
-		arc.a0.Position = Vector3.new(-halfW * k, 0.8, fwd)
-		arc.a1.Position = Vector3.new(halfW * k, 0.8, fwd)
+		-- 车前偏剑侧(+X 1.1)生成,微抬(ADR-50e:飘逸剑痕,判定语义不变)
+		arc.a0.Position = Vector3.new(1.1 - halfW * k, 1.0, fwd)
+		arc.a1.Position = Vector3.new(1.1 + halfW * k, 1.0, fwd)
 		local alpha
 		if self.arcT <= sweep then
 			alpha = 1                                       -- 扫掠段全亮

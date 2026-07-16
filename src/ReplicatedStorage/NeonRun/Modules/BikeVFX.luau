@@ -192,12 +192,6 @@ function BikeVFX.new(model, ctrl)
 	-- 冲刺三件(ADR-50a)
 	self.jet = makeJet(model.PrimaryPart)
 	self.wake = makeWake(model.PrimaryPart)
-	self.underglow = Instance.new("PointLight")
-	self.underglow.Name = "SprintUnderglow"
-	self.underglow.Color = SPRINT_COLOR
-	self.underglow.Brightness = 0
-	self.underglow.Range = 14
-	self.underglow.Parent = model.PrimaryPart
 	self.flowWritten = nil   -- 上次写入的心流态(nil=强制首写颜色)
 	ctrl:on("bounce", function() self.emit:Emit(22) end)
 	ctrl:on("hardHit", function() self.emit:Emit(40) end)
@@ -258,13 +252,12 @@ function BikeVFX:step(dt)
 		self.lineWritten = self.lineAlpha
 	end
 
-	-- 冲刺三件(ADR-50a):尾焰 Rate/尾迹开关随 sprinting,颜色随心流(仅变化帧写实例)
+	-- 冲刺二件(ADR-50a/50e:Underglow 已删):尾焰 Rate/尾迹开关随 sprinting,颜色随心流(仅变化帧写实例)
 	local flow = t.flowBoost == true
 	if flow ~= self.flowWritten then
 		local col = flow and FLOW_COLOR or SPRINT_COLOR
 		self.jet.Color = ColorSequence.new(col)
 		self.wake.Color = ColorSequence.new(col)
-		self.underglow.Color = col
 		self.flowWritten = flow
 	end
 	local jetRate = C("VFX", "SprintJetRate")
@@ -272,8 +265,7 @@ function BikeVFX:step(dt)
 	local wakeSec = C("VFX", "SprintWakeSec")
 	self.wake.Lifetime = math.max(wakeSec, 0)
 	self.wake.Enabled = t.sprinting and wakeSec > 0
-	local glowMax = C("VFX", "UnderglowBrightness")
-	self.underglow.Brightness = glowMax * (t.sprinting and 1 or 0.3)   -- 平时微亮霓虹车底,冲刺全亮
+	-- (车底常亮 Underglow 已删=人类试玩裁决 2026-07-16:后端灯把地面照亮很怪)
 end
 
 -- 相机后置步:必须在相机写完之后调(NeonRunTestDrive 渲染循环 rig:update 之后),
@@ -291,7 +283,6 @@ function BikeVFX:destroy()
 	if self.rig then self.rig:Destroy() end
 	if self.jet then self.jet:Destroy() end
 	if self.wake then self.wake:Destroy() end
-	if self.underglow then self.underglow:Destroy() end
 end
 
 return BikeVFX

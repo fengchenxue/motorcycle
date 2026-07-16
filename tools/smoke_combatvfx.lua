@@ -8,7 +8,7 @@ NEON RUN — 战斗/拾取/冲刺表现层冒烟(ADR-50/50a;Edit 固定 dt=1/60)
   ⑤ 子弹装饰:入夹即挂 Trail+光;不重挂
   ⑥ 水晶装饰(ADR-50a):挂碎晶×2+光;隐没沿=拾取爆点+装饰隐;复现重亮
   ⑦ 能量核装饰:挂卫星×4;隐没沿不重爆(核之死由 hit 爆点覆盖);隐现同步
-  ⑧ 冲刺三件(BikeVFX):尾焰 Rate/尾迹开关随 sprinting;心流=×1.4+变金;底光平时微亮冲刺全亮
+  ⑧ 冲刺二件(BikeVFX,ADR-50e 底光已删):尾焰 Rate/尾迹开关随 sprinting;心流=×1.4+变金
   ⑨ ShooterField telegraph 事件:充能相位即发+预告结束必发弹
   ⑩ destroy 零残留(弧/爆点/敌饰/物饰/冲刺件全清)
   ⑪ 配置还原回快照
@@ -44,7 +44,7 @@ local PIN = {
 	VFX_HitBurstParticles = 24, VFX_HitLightBrightness = 8, VFX_MagnetBeamSec = 0.12,
 	VFX_EnemySatSpinDeg = 90, VFX_EnemyBobStuds = 0.6, VFX_BulletTrailSec = 0.22,
 	VFX_CrystalSpinDeg = 160, VFX_CoreSpinDeg = 60, VFX_ItemBobStuds = 0.35,
-	VFX_SprintJetRate = 90, VFX_SprintWakeSec = 0.3, VFX_UnderglowBrightness = 4,
+	VFX_SprintJetRate = 90, VFX_SprintWakeSec = 0.3,
 	Sound_SlashVolume = 0, Sound_HitVolume = 0, Sound_ParryVolume = 0,
 }
 local saved = {}
@@ -246,25 +246,23 @@ do
 	function ctrl2:getTelemetry() return tel end
 	local bvfx = BikeVFX.new(bm2, ctrl2)
 	bvfx:step(DT)
-	ok("⑧a 非冲刺:尾焰 Rate=0+尾迹关+底光微亮(×0.3)", bvfx.jet.Rate == 0 and bvfx.wake.Enabled == false
-		and near(bvfx.underglow.Brightness, 4 * 0.3, 1e-3),
-		bvfx.jet.Rate .. "/" .. tostring(bvfx.wake.Enabled) .. "/" .. bvfx.underglow.Brightness)
+	ok("⑧a 非冲刺:尾焰 Rate=0+尾迹关(底光已删,ADR-50e)", bvfx.jet.Rate == 0 and bvfx.wake.Enabled == false
+		and bvfx.underglow == nil,
+		bvfx.jet.Rate .. "/" .. tostring(bvfx.wake.Enabled))
 	tel.sprinting = true
 	bvfx:step(DT)
-	ok("⑧b 冲刺:尾焰 Rate=90+尾迹开+底光全亮", near(bvfx.jet.Rate, 90, 0.01) and bvfx.wake.Enabled == true
-		and near(bvfx.underglow.Brightness, 4, 1e-3),
-		bvfx.jet.Rate .. "/" .. tostring(bvfx.wake.Enabled) .. "/" .. bvfx.underglow.Brightness)
+	ok("⑧b 冲刺:尾焰 Rate=90+尾迹开", near(bvfx.jet.Rate, 90, 0.01) and bvfx.wake.Enabled == true,
+		bvfx.jet.Rate .. "/" .. tostring(bvfx.wake.Enabled))
 	local cyan = Color3.fromRGB(0, 220, 255)
 	ok("⑧c 冲刺色=霓虹青", nearColor(bvfx.jet.Color.Keypoints[1].Value, cyan), tostring(bvfx.jet.Color.Keypoints[1].Value))
 	tel.flowBoost = true
 	bvfx:step(DT)
 	local gold = Color3.fromRGB(255, 200, 80)
-	ok("⑧d 心流:尾焰 ×1.4+变金(尾迹/底光同步)", near(bvfx.jet.Rate, 90 * 1.4, 0.01)
-		and nearColor(bvfx.jet.Color.Keypoints[1].Value, gold) and nearColor(bvfx.underglow.Color, gold),
+	ok("⑧d 心流:尾焰 ×1.4+变金(尾迹同步)", near(bvfx.jet.Rate, 90 * 1.4, 0.01)
+		and nearColor(bvfx.jet.Color.Keypoints[1].Value, gold) and nearColor(bvfx.wake.Color.Keypoints[1].Value, gold),
 		bvfx.jet.Rate .. "/" .. tostring(bvfx.jet.Color.Keypoints[1].Value))
 	bvfx:destroy()
-	ok("⑧e BikeVFX destroy 后冲刺件清空", fxCount(r2, "SprintWake") == 0 and r2:FindFirstChild("SprintUnderglow") == nil,
-		"有残留")
+	ok("⑧e BikeVFX destroy 后冲刺件清空", fxCount(r2, "SprintWake") == 0, "有残留")
 	bm2:Destroy()
 end
 

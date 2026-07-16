@@ -125,6 +125,8 @@ return {
 		ClimbStallKeepSpeed = 0, -- 失速离墙保留的前速比例(0=清零防贴脸;>0 可能贴墙振荡,调参注意)
 		ClimbReenterCDSec = 0.5, -- 失速后爬墙再入冷却(防落回裙板立刻回吸的微跳循环)
 		ChainSmoothSec = 0.08,  -- ADR-43a 链关节平滑:yaw/姿态朝切向指数趋近时长(0=关=关节瞬跳)
+		StickyArcBottom = 0,    -- P3i(ADR-49f)弧底粘滞:0=旧(滑到弧底即回地);1=仅高度带主动下压才驶出
+		                        -- ——治低位贴墙"回地→再磁吸"循环(试玩"卡一下扭正");试验值走属性层
 	},
 	Sound = {
 		EngineVolume = 0.4,
@@ -163,11 +165,8 @@ return {
 		CoreSpinDeg = 60,           -- 能量核卫星角速度(度/s;0=静态)
 		ItemBobStuds = 0.35,        -- 拾取物装饰悬浮起伏幅度
 		RiderEnabled = 1,           -- 骑手上车(ADR-50b):玩家 avatar 骑车+长剑;0=回旧停机坪(重进 Play 生效)
-		SwordDragSparkRate = 40,    -- 拖剑火花率(ADR-50c:垂剑贴地高速时刃尖冒火;0=关)
-		SwordTrailSec = 0.25,       -- 挥砍刀光 Trail 存续(ADR-50d:白→刃色渐变刀光带,心流随剑变金;0=关)
 		SprintJetRate = 90,         -- 冲刺尾焰粒子率(0=关;心流自动 ×1.4+变金)
 		SprintWakeSec = 0.3,        -- 冲刺地面尾迹存续(0=关;心流变金)
-		UnderglowBrightness = 4,    -- 车底霓虹光强(平时 ×0.3 微亮,冲刺全亮;0=关)
 	},
 	Combat = {
 		-- 斩击判定(ADR-16):按键帧对注册目标做车体局部空间盒查询,禁 Touched
