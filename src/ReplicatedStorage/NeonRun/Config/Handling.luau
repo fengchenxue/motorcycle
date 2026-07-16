@@ -11,6 +11,9 @@ return {
 		BrakeEnabled = true,    -- M2.1 轻刹实验开关(ADR-7,待 AB)
 		BrakeFloor = 0.7,       -- M2.1 轻刹稳态 = Base × 此值(不停死不倒车)
 		BrakeRampInSec = 0.15,  -- M2.1 刹车渐入:巡航→BrakeFloor 恰用此时长;松开走 RampUpSec 回升
+		-- ADR-46 GR2 速度手感(2026-07-16 人类反馈):默认 0=关=旧模型逐位不变;定值走 preset hot
+		AccelTauSec = 0,        -- 渐近式加速:>0=加速方向指数逼近顶速(时间常数,越近越慢;0=关=线性即达)
+		SteerDragFrac = 0,      -- 转向泄速:满转向时目标速度打此折(0.05=掉 5%,回正回升;0=关)
 	},
 	Steering = {
 		TurnRateLowDeg = 110,   -- 低速最大转向角速度

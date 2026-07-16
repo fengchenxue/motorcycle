@@ -32,6 +32,8 @@ local WALLCFG = {
 	WallRide_EnterTowardMinSpeed = 5, WallRide_BlendSec = 0.2, WallRide_HeightBandSpeed = 26,
 	WallRide_FallDriftPerSec = 0, WallRide_CamRollSec = 0.25, WallRide_ChainMaxTurnDeg = 8,
 	WallRide_FilletRadius = 0,   -- ADR-45 圆角关:本验收基线=直角吸附语义
+	Speed_AccelTauSec = 0, Speed_SteerDragFrac = 0, -- ADR-46 渐近加速/转向泄速关:基线=线性即达速度模型
+	Steering_TurnRateHighDeg = 55, Steering_InputRampInSec = 0.12, -- 坑 30:锚点期望 69.3/55.0 按此校;hot 应用态(65/0.07)不钉必假败
 	-- M4.1 新键(BikeController 现依赖;坑 7:显式种,绕开 require 缓存旧 flat)
 	Collision_SideOffset = 1.1,
 	Respawn_AnchorSpacingSec = 5, Respawn_SetbackAnchors = 0, Respawn_InputProtectSec = 0.5,

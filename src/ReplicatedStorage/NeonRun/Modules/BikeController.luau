@@ -417,6 +417,12 @@ function BikeController:_speedStep(dt)
 		targetSpeed = base * brakeFloor
 	else
 		targetSpeed = sprintEff and maxSpeed or base
+		-- ADR-46①转向泄速(GR2"左右移动有一点速度损失"):满转向目标速降此比例,回正即回升。
+		-- 默认 0=关=旧行为逐位不变;刹车路径不叠(BrakeRampIn 定时语义优先);墙态共用(高度带滑移同理)。
+		local drag = C("Speed", "SteerDragFrac") or 0
+		if drag > 0 then
+			targetSpeed *= 1 - drag * math.abs(self.steer)
+		end
 	end
 	local rate
 	if brakeOn then
@@ -425,7 +431,15 @@ function BikeController:_speedStep(dt)
 		local rampT = targetSpeed > self.curSpeed and C("Speed", "RampUpSec") or C("Speed", "RampDownSec")
 		rate = maxSpeed / math.max(rampT, 1e-3)
 	end
-	self.curSpeed += math.clamp(targetSpeed - self.curSpeed, -rate * dt, rate * dt)
+	-- ADR-46②渐近式加速(GR2"朝前走逐渐接近最高速/冲刺需要时间到峰"):AccelTauSec>0 时,
+	-- 非刹车的加速方向改指数逼近(越近顶速越慢,永不过冲);减速与刹车仍走线性(ADR-30 空中
+	-- 松冲刺衰回轨迹、M2.1 刹车定时语义均不变)。默认 0=关=线性 clamp 旧路径逐位不变。
+	local tau = C("Speed", "AccelTauSec") or 0
+	if tau > 0 and not brakeOn and targetSpeed > self.curSpeed then
+		self.curSpeed += (targetSpeed - self.curSpeed) * (1 - math.exp(-dt / tau))
+	else
+		self.curSpeed += math.clamp(targetSpeed - self.curSpeed, -rate * dt, rate * dt)
+	end
 	self.brakeFrac = self.curSpeed / math.max(base, 1e-3)
 	return sprintSpeed
 end

@@ -8,6 +8,10 @@ local UIS = game:GetService("UserInputService")
 local PARAMS = {
 	{ "Speed", "Base", 40, 200, 0 },
 	{ "Speed", "SprintMultiplier", 1.0, 2.0, 2 },
+	{ "Speed", "AccelTauSec", 0, 2.0, 2 },
+	{ "Speed", "SteerDragFrac", 0, 0.20, 2 },
+	{ "Collision", "GrazeSlowdown", 0.70, 1.0, 2 },
+	{ "Collision", "BounceSlowdown", 0.40, 1.0, 2 },
 	{ "Steering", "TurnRateLowDeg", 40, 180, 0 },
 	{ "Steering", "TurnRateHighDeg", 20, 120, 0 },
 	{ "Steering", "InputRampInSec", 0.02, 0.40, 2 },
