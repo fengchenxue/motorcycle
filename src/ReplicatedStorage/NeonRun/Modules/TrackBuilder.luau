@@ -627,7 +627,7 @@ function TrackBuilder.buildContent(spline, segs, spec, gaps, totalSec, bridges)
 							lbl.TextColor3 = Color3.fromRGB(255, 255, 255)
 							lbl.TextScaled = true
 							lbl.Font = Enum.Font.GothamBlack
-							lbl.Text = "⚔ 斩"
+							lbl.Text = "⚔ SLASH"   -- P4g 世界字英文化(人类直令)
 							lbl.Parent = gui
 						end
 						placed.gates += 1
@@ -832,6 +832,39 @@ function TrackBuilder.buildFinishGate(spline, tFin)
 	lbl.Parent = gui
 end
 
+-- P4c 发车出生点(人类反馈"点开始出现在大厅"):角色直接出生在发车线——§8"直进赛道最小入口"
+-- 的落地;同时把 Streaming 初始焦点从大厅挪到赛道(开局即围绕发车区加载)。挂 Track 下随 compile 重建。
+-- CanQuery=false:出生板对车辆物理隐形(坑 33——本引擎碰撞走查询,否则发车线上多一块未 Tag 障碍)。
+function TrackBuilder.buildSpawn(spline)
+	local R = cfg().Road
+	local track = workspace.NeonRun:FindFirstChild(TRACK_FOLDER)
+	if not track then return end
+	local cf = spline:GetCFrame(0.001)
+	local lookH = Vector3.new(cf.LookVector.X, 0, cf.LookVector.Z)
+	lookH = lookH.Magnitude > 1e-4 and lookH.Unit or Vector3.zAxis
+	local base = cf.Position - Vector3.new(0, R.SinkBelowSpline, 0) + Vector3.new(0, 0.5, 0)
+	local spn = Instance.new("SpawnLocation")
+	spn.Name = "NeonRunSpawn"
+	spn.Size = Vector3.new(8, 1, 8)
+	spn.CFrame = CFrame.lookAt(base, base + lookH)
+	spn.Anchored = true
+	spn.CanCollide = true
+	spn.CanQuery = false
+	spn.CanTouch = false
+	spn.Neutral = true
+	spn.Duration = 0
+	spn.Transparency = 0.4
+	spn.Color = Color3.fromRGB(60, 255, 120)
+	spn.Parent = track
+	-- 其它出生点让位(大厅出生点=V1 demo 期间禁用;可逆,M11 大厅回启按标记找回)
+	for _, inst in ipairs(workspace:GetDescendants()) do
+		if inst:IsA("SpawnLocation") and inst ~= spn and inst.Enabled then
+			inst.Enabled = false
+			inst:SetAttribute("NeonRunDisabled", true)
+		end
+	end
+end
+
 -- P4a 分段门:均匀目标吸附到节拍区段边界(语义分段);写 Track.CheckpointTs 属性(运行时同源)
 function TrackBuilder.bakeCheckpoints(spline, segs, spec)
 	local count = (spec and spec.checkpoints) or cfg().Checkpoints.Count
@@ -858,7 +891,7 @@ end
 
 -- P4b 锚点烘焙(ADR-27;RespawnAnchors 模块,参数事实源=Handling 模块默认)
 function TrackBuilder.bakeAnchors(spline)
-	local RespawnAnchors = require(RS.NeonRun.Modules.RespawnAnchors)
+	local RespawnAnchors = require(RS.NeonRun.Modules.RespawnAnchors:Clone())   -- 坑15:取最新(锚点已迁 RS)
 	local H = require(RS.NeonRun.Config.Handling)
 	local result = RespawnAnchors.bake(spline, {
 		spacingStuds = H.Respawn.AnchorSpacingSec * H.Speed.Base,
@@ -876,7 +909,7 @@ function TrackBuilder.robotRun(spline, opts)
 	opts = opts or {}
 	local Rb = cfg().Robot
 	local BikeController = require(RS.NeonRun.Modules.BikeController)
-	local RespawnAnchors = require(RS.NeonRun.Modules.RespawnAnchors)
+	local RespawnAnchors = require(RS.NeonRun.Modules.RespawnAnchors:Clone())   -- 坑15:取最新(锚点已迁 RS)
 	local H = require(RS.NeonRun.Config.Handling)
 	local model = Instance.new("Model")
 	model.Name = "TBRobot"
@@ -1044,6 +1077,23 @@ function TrackBuilder.compile(opts)
 	local closed = TrackBuilder.resolveClosed(opts.closed)
 	local spline = TrackBuilder.buildSpline(closed)
 	local spec = TrackBuilder.getSpec(opts.spec)
+	-- P4a(ADR-51)样条数据迁 ReplicatedStorage:CP 球=BasePart 会被 Streaming 按距截断(坑 24),
+	-- 客户端(TestDrive)从 TrackData 全量重建样条;CP 球降级为纯编辑器工件
+	do
+		local td = RS.NeonRun:FindFirstChild("TrackData")
+		if not td then
+			td = Instance.new("Folder")
+			td.Name = "TrackData"
+			td.Parent = RS.NeonRun
+		end
+		local pts = TrackBuilder.getControlPoints()
+		local buf = table.create(#pts)
+		for i, p in ipairs(pts) do
+			buf[i] = string.format("%.2f,%.2f,%.2f", p.X, p.Y, p.Z)
+		end
+		td:SetAttribute("CP", table.concat(buf, ";"))
+		td:SetAttribute("Closed", closed)
+	end
 	local segs, totalSec = TrackBuilder.resolveSegments(spline, spec)
 	local gaps, jumpNotes = TrackBuilder.planJumps(spline, segs)
 	local bridges = TrackBuilder.planBridges(spline, segs, totalSec)
@@ -1060,6 +1110,7 @@ function TrackBuilder.compile(opts)
 		if trackFolder then trackFolder:SetAttribute("FinishT", spec.finishAt) end
 		TrackBuilder.buildFinishGate(spline, spec.finishAt)
 	end
+	TrackBuilder.buildSpawn(spline)   -- P4c:发车线出生点(其它出生点让位)
 	local anchorResult = TrackBuilder.bakeAnchors(spline)
 	local lint = TrackBuilder.lintAll(spline, segs, content, gaps, spec, totalSec, bridges)
 	local robot = nil

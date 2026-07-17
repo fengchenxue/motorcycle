@@ -121,9 +121,15 @@ end
 
 -- 持久化(Edit 期):清旧建新,不可见锚根 + Attachment 链
 function RespawnAnchors.persist(bakeResult)
-	local nrFolder = workspace:FindFirstChild("NeonRun") or workspace
+	-- P4a(ADR-51)锚点迁 ReplicatedStorage:锚点=纯数据;旧容器是挂在原点的 Workspace BasePart,
+	-- Streaming 下按距离流式(离赛道数千 studs=客户端永远收不到)。RS 全量复制,零流式语义。
+	local RS = game:GetService("ReplicatedStorage")
+	local nrFolder = RS:FindFirstChild("NeonRun") or workspace:FindFirstChild("NeonRun") or workspace
 	local old = nrFolder:FindFirstChild(FOLDER_NAME)
 	if old then old:Destroy() end
+	local wsNr = workspace:FindFirstChild("NeonRun")
+	local wsOld = wsNr and wsNr:FindFirstChild(FOLDER_NAME)
+	if wsOld then wsOld:Destroy() end   -- 清 Workspace 旧址遗留,防双源
 	local rootPart = Instance.new("Part")
 	rootPart.Name = FOLDER_NAME
 	rootPart.Anchored = true
@@ -145,8 +151,14 @@ end
 
 -- 运行时读回:排序 {t, cf} 表;无烘焙返回 nil
 function RespawnAnchors.load()
-	local nrFolder = workspace:FindFirstChild("NeonRun")
-	local rootPart = nrFolder and nrFolder:FindFirstChild(FOLDER_NAME)
+	-- P4a(ADR-51):优先 ReplicatedStorage(Streaming 安全);旧场景/rig 兜底走 Workspace
+	local RS = game:GetService("ReplicatedStorage")
+	local rsNr = RS:FindFirstChild("NeonRun")
+	local rootPart = rsNr and rsNr:FindFirstChild(FOLDER_NAME)
+	if not rootPart then
+		local nrFolder = workspace:FindFirstChild("NeonRun")
+		rootPart = nrFolder and nrFolder:FindFirstChild(FOLDER_NAME)
+	end
 	if not rootPart then return nil end
 	local list = {}
 	for _, att in ipairs(rootPart:GetChildren()) do
