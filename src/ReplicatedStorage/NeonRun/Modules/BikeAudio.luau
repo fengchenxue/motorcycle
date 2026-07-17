@@ -1,14 +1,16 @@
 -- NeonRun / BikeAudio (M3) —— 占位音效三层(策划案 §5 声音三层)
--- 1 引擎底噪随速度升调 | 2 冲刺点火爆音 | 3 近距擦墙呼啸
+-- 1 引擎底噪随速度升调 | 2 冲刺点火爆音(ADR-50m:whoosh+低频重击双层,GR2 式"哐+咻") | 3 近距擦墙呼啸
 -- 素材全部来自 Roblox 官方免费音频库(Pro Sound Effects),正式音效 V2 美术 Pass 替换。
 local RS = game:GetService("ReplicatedStorage")
 
 -- 占位 assetId 常量区
 local SFX = {
-	Engine   = "rbxassetid://9119386571", -- Spacecraft Engine Idle(循环底噪,赛博感)
-	Ignition = "rbxassetid://9125920594", -- Searing Whoosh Fast Rushing(1.3s 点火)
-	Whoosh   = "rbxassetid://9114377713", -- Fast Whoosh By Air Mass(载具掠过)
+	Engine      = "rbxassetid://9119386571", -- Spacecraft Engine Idle(循环底噪,赛博感)
+	Ignition    = "rbxassetid://9125920594", -- Searing Whoosh Fast Rushing(1.3s 点火)
+	IgnitePunch = "rbxassetid://9125672739", -- Sledge Hammer 族(ADR-50m:0.45 低速=点火重击层;原速=吃弹音,一件两语义)
+	Whoosh      = "rbxassetid://9114377713", -- Fast Whoosh By Air Mass(载具掠过)
 }
+local PUNCH_SPEED = 0.45 -- 重击层降速(越低越闷重;与 playerHit 原速 1.0 拉开语义)
 
 local BikeAudio = {}
 BikeAudio.__index = BikeAudio
@@ -31,6 +33,8 @@ function BikeAudio.new(rootPart)
 	self.cfg = ConfigLive.bind(inst, require(inst))
 	self.engine = mkSound(rootPart, SFX.Engine, true)
 	self.ignition = mkSound(rootPart, SFX.Ignition, false)
+	self.ignitePunch = mkSound(rootPart, SFX.IgnitePunch, false) -- ADR-50m 重击层
+	self.ignitePunch.PlaybackSpeed = PUNCH_SPEED
 	self.whoosh = mkSound(rootPart, SFX.Whoosh, false)
 	self.prevSprint = false
 	self.prevWall = false
@@ -56,6 +60,12 @@ function BikeAudio:update(tele, dt)
 	if tele.sprinting and not self.prevSprint then
 		self.ignition.Volume = C("Sound", "IgnitionVolume")
 		self.ignition:Play()
+		-- ADR-50m:低频重击层同帧齐发="哐+咻"(GR2 式启动冲击);键 0=关=纯 whoosh 旧感
+		local pv = C("Sound", "IgnitePunchVolume")
+		if pv and pv > 0 then
+			self.ignitePunch.Volume = pv
+			self.ignitePunch:Play()
+		end
 	end
 	self.prevSprint = tele.sprinting == true
 	-- 层3:擦墙呼啸(wallContact 上升沿 + 冷却)
@@ -72,6 +82,7 @@ end
 function BikeAudio:destroy()
 	self.engine:Destroy()
 	self.ignition:Destroy()
+	self.ignitePunch:Destroy()
 	self.whoosh:Destroy()
 end
 

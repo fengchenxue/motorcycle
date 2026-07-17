@@ -133,6 +133,7 @@ return {
 		EnginePitchMin = 0.75,  -- 静止/低速音调
 		EnginePitchMax = 1.7,   -- 最高速音调
 		IgnitionVolume = 0.6,
+		IgnitePunchVolume = 0.35, -- 冲刺点火低频重击层(ADR-50m GR2"哐+咻";吃弹锤击件 9125672739 降速 0.45 两语义;0=关=纯 whoosh)
 		WhooshVolume = 0.7,     -- 擦墙呼啸
 		WhooshCooldownSec = 0.8,
 		-- 战斗音(CombatVFX;ADR-50i 已转官方正式素材,assetId 见模块顶 SFX 表,0=静)

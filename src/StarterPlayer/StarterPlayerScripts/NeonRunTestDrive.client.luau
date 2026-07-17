@@ -239,6 +239,11 @@ local rsfx = RaceSFX.new(bike.PrimaryPart) -- 流程与状态音:事件→音效
 ctrl:on("respawned", function() rsfx:play("respawn") end)
 -- 碰撞火花(订阅 bounce/hardHit + 读 wallContact/crashing 拖火花)
 local vfx = BikeVFX.new(bike, ctrl)
+-- ADR-50m:音效冷加载预载——CDN 冷取实测可 >3s,倒计时仅 ~3s,第一脚点火/首个流程音有概率哑;
+-- 车根挂全部 BikeAudio/RaceSFX 声源,后台预载不阻塞启动(表现层:失败静默,顶多回到冷加载现状)
+task.spawn(function()
+	game:GetService("ContentProvider"):PreloadAsync({ bike })
+end)
 
 -- M5:能量系统(订阅 ctrl 事件) + 水晶场(拾取→加能);心流→相机档
 local energy = EnergyState.new(ctrl)
