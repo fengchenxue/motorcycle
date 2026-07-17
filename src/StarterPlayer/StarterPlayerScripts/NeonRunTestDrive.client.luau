@@ -27,6 +27,9 @@ local RaceSFX = require(mods:WaitForChild("RaceSFX"))
 local WallRideField = require(mods:WaitForChild("WallRideField"))
 local FixedStep = require(mods:WaitForChild("FixedStep"))
 local RespawnAnchors = require(mods:WaitForChild("RespawnAnchors"))
+-- ADR-54 多人隔离:其他玩家角色本地剔除(平行单机化)。必须早于一切世界扫掠——
+-- 含下方 P4i 就绪门探地与 BikeController 障碍扫掠,否则发车线上别人的角色=幻影障碍(坑 34)
+require(mods:WaitForChild("PlayerIsolation")).enable()
 
 local wsNr = workspace:WaitForChild("NeonRun")
 -- P4a(ADR-51)Streaming 就绪:样条优先读 ReplicatedStorage.NeonRun.TrackData(compile 烘焙的全量
@@ -598,27 +601,34 @@ end)
 -- Streaming 关闭的旧场景/试炼道=首探即命中,零成本。期间物理本就冻结(P3f idle 不走步)。
 do
 	local CS = game:GetService("CollectionService")
-	local GATE_TIMEOUT = 10
 	local t0 = os.clock()
 	countdownLabel.Text = "LOADING…"
 	if not game:IsLoaded() then game.Loaded:Wait() end
-	pcall(function()   -- 催服务端优先流出生区(拿不到流式语境时静默跳过)
-		player:RequestStreamAroundAsync(SPAWN.Position, GATE_TIMEOUT)
+	local tLoaded = os.clock() - t0
+	pcall(function()   -- 催服务端优先流出生区(拿不到流式语境时静默跳过;非流式=无操作)
+		player:RequestStreamAroundAsync(SPAWN.Position, 10)
 	end)
 	local rp = RaycastParams.new()
 	rp.FilterType = Enum.RaycastFilterType.Exclude
 	local excl = { bike }
 	if player.Character then excl[#excl + 1] = player.Character end
 	rp.FilterDescendantsInstances = excl
-	local ready = false
-	while os.clock() - t0 < GATE_TIMEOUT do
+	-- ADR-53a:10s 兜底放行已废——非流式初始 join 复制无空间优先级(坑 39),Studio 同机多客户端
+	-- 下 3000+ 件可推 >10s,超时放行=把玩家放进虚空坠落循环(两客户端实测"进去就蓝屏",比黑屏糟)。
+	-- 改=等到出生区真探到 Rideable 才放行:LOADING 文案带秒数(玩家可见没死机),每 10s 一条 warn。
+	-- 探测本身=就绪的定义,无假阳性;期间物理本就冻结(P3f idle 不走步)。
+	local n = 0
+	while true do
 		local hit = workspace:Raycast(SPAWN.Position + Vector3.new(0, 6, 0), Vector3.new(0, -60, 0), rp)
-		if hit and CS:HasTag(hit.Instance, "Rideable") then ready = true; break end
+		if hit and CS:HasTag(hit.Instance, "Rideable") then break end
+		n += 1
+		if n % 100 == 0 then
+			warn(string.format("[NeonRun] P4i 出生区可骑面仍未复制(已等 %ds;game.Loaded 耗时 %.1fs)——同机多客户端/慢网复制中,继续等待", math.floor(os.clock() - t0 + 0.5), tLoaded))
+		end
+		countdownLabel.Text = "LOADING… " .. math.floor(os.clock() - t0 + 0.5) .. "s"
 		task.wait(0.1)
 	end
-	if not ready then
-		warn(string.format("[NeonRun] P4i 发车就绪门超时(%ds):出生区可骑面未流入,兜底放行(慢网/低端机留意)", GATE_TIMEOUT))
-	end
+	print(string.format("[NeonRun] P4i 就绪门通过:总等待 %.1fs(其中 game.Loaded %.1fs)", os.clock() - t0, tLoaded))
 	-- 音效预热不在此重复:ADR-50m 已在启动期 task.spawn(PreloadAsync({bike}))(车根挂全部声源)。
 end
 timer:startCountdown()
