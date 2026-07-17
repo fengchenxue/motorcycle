@@ -3,6 +3,7 @@
 local Players = game:GetService("Players")
 local RunS = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
+local GuiS = game:GetService("GuiService")
 local RS = game:GetService("ReplicatedStorage")
 
 local player = Players.LocalPlayer
@@ -22,6 +23,7 @@ local BikeVFX = require(mods:WaitForChild("BikeVFX"))
 local CombatVFX = require(mods:WaitForChild("CombatVFX"))
 local RiderRig = require(mods:WaitForChild("RiderRig"))
 local SprintUI = require(mods:WaitForChild("SprintUI"))
+local RaceSFX = require(mods:WaitForChild("RaceSFX"))
 local WallRideField = require(mods:WaitForChild("WallRideField"))
 local FixedStep = require(mods:WaitForChild("FixedStep"))
 local RespawnAnchors = require(mods:WaitForChild("RespawnAnchors"))
@@ -32,7 +34,9 @@ local wsNr = workspace:WaitForChild("NeonRun")
 -- 旧场景/试炼道(无 TrackData)兜底走 CP 球原路径。
 local splinePts, TRACK_CLOSED
 do
-	local td = RS:WaitForChild("NeonRun"):FindFirstChild("TrackData")
+	-- P4c:WaitForChild 带超时——客户端启动早期 RS 子件可能未复制完,FindFirstChild 竞态输了
+	-- 会误入 CP 球兜底(流式下大厅附近无 CP 球=样条断言炸,人类回报"滞留大厅")
+	local td = RS:WaitForChild("NeonRun"):WaitForChild("TrackData", 5)
 	if td and td:GetAttribute("CP") then
 		splinePts = {}
 		for triple in string.gmatch(td:GetAttribute("CP"), "[^;]+") do
@@ -52,15 +56,24 @@ do
 		end
 		TRACK_CLOSED = wsNr:GetAttribute("Closed")
 		if TRACK_CLOSED == nil then TRACK_CLOSED = true end
+		if workspace.StreamingEnabled then
+			warn("[NeonRun] TrackData 缺失且 Streaming 开启:CP 球兜底可能不完整(坑 24)——正式赛道请先在 Edit 跑 tools/compile_track1.lua")
+		end
 	end
 end
--- P3f(人类反馈):游戏内隐藏控制点小球(若已流入;LocalTransparencyModifier=纯客户端)
+assert(splinePts and #splinePts >= 4,
+	"[NeonRun] 样条点不足(TrackData 缺失且 CP 球未流入)——请在 Edit 跑 tools/compile_track1.lua 后再 Play")
+-- P3f(人类反馈):游戏内隐藏控制点小球(LocalTransparencyModifier=纯客户端,Edit 期照常可见)
+-- P4f 修:Streaming 下球随玩家移动才流入,启动一遍藏不全(坑24 变种);流出再流入=新实例
+-- (客户端修饰符随实例销毁丢失)——ChildAdded 持续接住两种情况
 do
-	local cpFolder = wsNr:FindFirstChild("ControlPoints")
+	local function hideCp(inst)
+		if inst:IsA("BasePart") then inst.LocalTransparencyModifier = 1 end
+	end
+	local cpFolder = wsNr:FindFirstChild("ControlPoints") or wsNr:WaitForChild("ControlPoints", 3)
 	if cpFolder then
-		for _, cp in ipairs(cpFolder:GetChildren()) do
-			if cp:IsA("BasePart") then cp.LocalTransparencyModifier = 1 end
-		end
+		for _, cp in ipairs(cpFolder:GetChildren()) do hideCp(cp) end
+		cpFolder.ChildAdded:Connect(hideCp)
 	end
 end
 local SPAWN = CFrame.lookAt(splinePts[1] + Vector3.new(0, 1.2, 0),
@@ -82,8 +95,24 @@ label.BackgroundColor3 = Color3.new(0, 0, 0)
 label.TextColor3 = Color3.fromRGB(0, 220, 255)
 label.TextSize = 18
 label.Font = Enum.Font.GothamMedium
+label.Visible = false   -- P4g 人类直令:顶部调试条默认隐藏(F2 开关);正式 HUD=秒表/CP/能量条自足
 label.Parent = gui
 TunePanel.mount(gui)
+-- P4g PC 按键提示(右下角,仅非触屏;触屏端=图标按钮自说明)
+local keyHint = Instance.new("TextLabel")
+keyHint.AnchorPoint = Vector2.new(1, 1)
+keyHint.Position = UDim2.new(1, -14, 1, -12)
+keyHint.Size = UDim2.new(0, 480, 0, 18)
+keyHint.BackgroundTransparency = 1
+keyHint.TextXAlignment = Enum.TextXAlignment.Right
+keyHint.TextColor3 = Color3.fromRGB(150, 200, 230)
+keyHint.TextTransparency = 0.25
+keyHint.TextStrokeTransparency = 0.7
+keyHint.TextSize = 14
+keyHint.Font = Enum.Font.GothamMedium
+keyHint.Text = "A/D Steer   ·   W/Shift Sprint   ·   S Brake   ·   J Slash   ·   R Restart"
+keyHint.Visible = not UIS.TouchEnabled
+keyHint.Parent = gui
 
 -- M5 能量 HUD:底部能量条(水晶段青色,冒险段>80 金色,心流白光,空槽暗红)
 local energyBarBG = Instance.new("Frame")
@@ -136,22 +165,47 @@ readyStroke.Parent = energyBarBG
 -- M8.1 "蓝区已满"轻提示 toast(capFull 事件;ADR-17 系统可拒绝但不能沉默)
 local capFullToast = Instance.new("TextLabel")
 capFullToast.AnchorPoint = Vector2.new(0.5, 1)
-capFullToast.Position = UDim2.new(0.5, 0, 0, -6)
+capFullToast.Position = UDim2.new(0.5, 0, 0, -40)   -- 速度读数占了条顶 -4~-34,toast 再上移(ADR-52)
 capFullToast.Size = UDim2.new(0, 160, 0, 20)
 capFullToast.BackgroundTransparency = 1
 capFullToast.TextColor3 = Color3.fromRGB(120, 220, 255)
 capFullToast.TextStrokeTransparency = 0.4
 capFullToast.TextSize = 14
 capFullToast.Font = Enum.Font.GothamMedium
-capFullToast.Text = "蓝区已满"
+capFullToast.Text = "CAP FULL"
 capFullToast.TextTransparency = 1
 capFullToast.ZIndex = 4
 capFullToast.Parent = energyBarBG
+-- 当前速度读数(ADR-52,人类拍板:能量条正上方组「速度大字+能量条」仪表盘簇+状态配色):
+-- 数字=studs/s 原值(1 stud≈0.28m → 数值≈km/h,免换算);白=巡航/青=冲刺/金=心流,色语言同 SprintUI。
+local speedLabel = Instance.new("TextLabel")
+speedLabel.AnchorPoint = Vector2.new(0.5, 1)
+speedLabel.Position = UDim2.new(0.5, 0, 0, -4)
+speedLabel.Size = UDim2.new(0, 200, 0, 30)
+speedLabel.BackgroundTransparency = 1
+speedLabel.TextColor3 = Color3.fromRGB(235, 245, 255)
+speedLabel.TextStrokeTransparency = 0.6
+speedLabel.TextSize = 30
+speedLabel.Font = Enum.Font.GothamBlack
+speedLabel.Text = "0"
+speedLabel.ZIndex = 3
+speedLabel.Parent = energyBarBG
+local SPEED_TIER_COL = {
+	[0] = Color3.fromRGB(235, 245, 255), -- 巡航白
+	[1] = Color3.fromRGB(140, 230, 255), -- 冲刺青(=SprintUI THEME)
+	[2] = Color3.fromRGB(255, 210, 110), -- 心流金(=SprintUI FLOW_GOLD)
+}
+local speedShown, speedTierShown = -1, -1
 
 -- 冲刺 UI 动效(ADR-50g,借鉴场上搁置的 SprintCameraFX 方案B包络):爆发+残留速度线/边缘流光/心流金+入流闪
 local sprintUI = SprintUI.new(gui)
 
-local bike = workspace:WaitForChild("Motorcycle"):Clone()
+-- P4a(ADR-51 补):摩托模板在 Streaming 下曾被克隆成空壳(Model 容器复制但零件按距流式,
+-- 角色出生点离模板远=克隆时零件不在 → BikeController 无 BikeRoot 当场死,玩家滞留大厅)。
+-- 模板已设 ModelStreamingMode=Persistent;此处再防御性等根件到位才克隆(双保险)。
+local bikeTemplate = RS.NeonRun:FindFirstChild("Motorcycle") or workspace:WaitForChild("Motorcycle")
+bikeTemplate:WaitForChild("BikeRoot")
+local bike = bikeTemplate:Clone()
 bike.Name = "TestDriveBike"
 bike.Parent = workspace
 bike:PivotTo(SPAWN)
@@ -181,18 +235,26 @@ ctrl:on("fell", flashCrash)
 local rig = CameraRig.new(camera, ctrl)
 ctrl:on("respawned", function() rig:snap() end)
 local audio = BikeAudio.new(bike.PrimaryPart)
+local rsfx = RaceSFX.new(bike.PrimaryPart) -- 流程与状态音:事件→音效唯一映射(ADR-50j)
+ctrl:on("respawned", function() rsfx:play("respawn") end)
 -- 碰撞火花(订阅 bounce/hardHit + 读 wallContact/crashing 拖火花)
 local vfx = BikeVFX.new(bike, ctrl)
 
 -- M5:能量系统(订阅 ctrl 事件) + 水晶场(拾取→加能);心流→相机档
 local energy = EnergyState.new(ctrl)
 -- ADR-42:回调返回入账 delta——蓝区已满时 addCrystal 返回 0 → 水晶不捕获、留在原地
-local field = CrystalField.new(function() return energy:addCrystal() end)
+local field = CrystalField.new(function()
+	local gained = energy:addCrystal()
+	if gained > 0 then rsfx:play("pickup") end -- 只在真入账时响:满箱不捕获=无声(ADR-42 语义一致)
+	return gained
+end)
 energy:on("flowStart", function() rig:setFlow(true); ctrl:setFlowBoost(true) end)   -- ADR-31 心流升档接线
 energy:on("flowEnd", function() rig:setFlow(false); ctrl:setFlowBoost(false) end)
 -- M8.1 能量表现层:空箱红闪 / 点火尖峰 / 蓝区已满 toast(计时器在 RenderStepped 衰减)
 local emptyFlash, igniteFlash, capFullT = 0, 0, 0
-energy:on("emptyBox", function() emptyFlash = 1 end)   -- 0 能量按键:条闪红+抖动(干点火;咔哒音待 assetId)
+energy:on("emptyBox", function() emptyFlash = 1 end)   -- 0 能量按键:条闪红+抖动(干点火)
+energy:on("emptyBox", function() rsfx:play("emptyBox") end) -- 干点火咔哒(M8.1 欠账清,ADR-50j)
+energy:on("flowStart", function() rsfx:play("flow") end)    -- 心流升档 surge
 energy:on("ignite", function() igniteFlash = 1 end)    -- 点火:条白亮尖峰
 energy:on("capFull", function() capFullT = 0.8 end)    -- 蓝区已满:toast 0.8s
 
@@ -209,6 +271,8 @@ shooters:on("playerHit", function()
 	crashFlash.BackgroundColor3 = Color3.fromRGB(255, 60, 110)
 	crashFlash.BackgroundTransparency = 0.55
 end)
+shooters:on("playerHit", function() rsfx:play("playerHit") end)          -- 吃弹重击音(ADR-50j)
+shooters:on("fired", function(e) rsfx:playAt("enemyFire", e.shooter) end) -- 敌火 pew:声从射手方位来,可听声辨位
 
 -- 【临时调试】斩击判定盒可视化(开关=Handling 属性 Combat_DebugHitbox,属性面板实时切;正式版前移除)
 -- 盒随物理系(physPos+yaw)走,尺寸实时读 Combat_Hitbox* 四键——调参数时盒子跟着变
@@ -255,7 +319,7 @@ hitboxSel.Parent = hitboxViz
 -- M8.5 P4:分段门 Ts 优先读 TrackBuilder 烘焙属性(Track.CheckpointTs,与门拱/校验同源);无则模块默认
 local checkpointTs = nil
 do
-	local trackFolder = cpFolder.Parent:FindFirstChild("Track")
+	local trackFolder = wsNr:FindFirstChild("Track")   -- P4c 修:顶层 cpFolder 已删,残留引用=index nil 炸(滞留大厅真凶)
 	local s = trackFolder and trackFolder:GetAttribute("CheckpointTs")
 	if type(s) == "string" and #s > 0 then
 		checkpointTs = {}
@@ -272,30 +336,9 @@ do
 	local trackFolder = workspace.NeonRun:FindFirstChild("Track")
 	finishT = trackFolder and trackFolder:GetAttribute("FinishT") or nil
 end
-local timer = RaceTimer.new(ctrl, spline, { trackId = "Track01", laps = 1, closed = TRACK_CLOSED, checkpoints = checkpointTs, finishT = finishT })
+local timer = RaceTimer.new(ctrl, spline, { trackId = "Track1", laps = 1, closed = TRACK_CLOSED, checkpoints = checkpointTs, finishT = finishT })
 
--- M7 锻点 HUD:中心十字(锁定=橘黄,在窗口=青绿发光=可斩)
-local reticle = Instance.new("Frame")
-reticle.AnchorPoint = Vector2.new(0.5, 0.5)
-reticle.Position = UDim2.new(0.5, 0, 0.44, 0)
-reticle.Size = UDim2.new(0, 46, 0, 46)
-reticle.BackgroundTransparency = 1
-reticle.Parent = gui
-local function reticleBar(w, h)
-	local b = Instance.new("Frame")
-	b.AnchorPoint = Vector2.new(0.5, 0.5)
-	b.BorderSizePixel = 0
-	b.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-	b.BackgroundTransparency = 1
-	b.Size = UDim2.new(0, w, 0, h)
-	b.Parent = reticle
-	return b
-end
-local retTop = reticleBar(2, 14); retTop.Position = UDim2.new(0.5, 0, 0.5, -16)
-local retBot = reticleBar(2, 14); retBot.Position = UDim2.new(0.5, 0, 0.5, 16)
-local retL = reticleBar(14, 2); retL.Position = UDim2.new(0.5, -16, 0.5, 0)
-local retR = reticleBar(14, 2); retR.Position = UDim2.new(0.5, 16, 0.5, 0)
-local retParts = { retTop, retBot, retL, retR }
+-- M7 锻点 HUD 准星=已移除(P4d 人类直令"隐藏准星";可斩/锁定反馈由剑光弧+敌人充能装饰+命中飘字承担)
 local attackFlash = 0
 attack:on("hit", function() attackFlash = 1 end)
 attack:on("whiff", function() attackFlash = -1 end)
@@ -323,8 +366,8 @@ attack:on("hit", function(e)
 	end
 	local txt
 	if sum > 0 then txt = "+" .. sum
-	elseif hasParry then txt = "弹反!"
-	else txt = "斩!" end
+	elseif hasParry then txt = "PARRY!"
+	else txt = "SLASH!" end
 	if (e.count or 1) > 1 then txt = txt .. " ×" .. e.count end
 	hitPop.Text = txt
 	hitPop.TextColor3 = Color3.fromRGB(60, 255, 140)
@@ -332,7 +375,7 @@ attack:on("hit", function(e)
 end)
 shooters:on("enemyKilled", function(e)
 	if e.cause == "parryReturn" then
-		hitPop.Text = "弹反击杀 +25"
+		hitPop.Text = "PARRY KILL +25"
 		hitPop.TextColor3 = Color3.fromRGB(60, 255, 180)
 		hitPopT = 1
 	end
@@ -419,7 +462,7 @@ restartBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 255)
 restartBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
 restartBtn.TextSize = 20
 restartBtn.Font = Enum.Font.GothamBold
-restartBtn.Text = "一键重开 (R)"
+restartBtn.Text = "RESTART (R)"
 restartBtn.BorderSizePixel = 0
 restartBtn.ZIndex = 8
 restartBtn.Parent = settlePanel
@@ -436,19 +479,22 @@ local function doRestart()
 end
 restartBtn.MouseButton1Click:Connect(doRestart)
 
--- 奖牌中文名
-local MEDAL_CN = { Bronze = "🥉 铜牌", Silver = "🥈 银牌", Gold = "🥇 金牌", Author = "👑 作者牌" }
+-- 奖牌显示名(P4g 英文化;顶牌改 CHAMPION=人类直令"作者牌太奇怪,改王者类";内部键仍 Author=代码/文档/Medals 口径不动)
+local MEDAL_TXT = { Bronze = "🥉 BRONZE", Silver = "🥈 SILVER", Gold = "🥇 GOLD", Author = "👑 CHAMPION" }
 timer:on("finish", function(res)
-	settleMedal.Text = res.medal and MEDAL_CN[res.medal] or "未完赛"
-	settleTime.Text = string.format("用时 %.2f 秒  ·  重置 %d 次", res.time, res.resetCount)
+	settleMedal.Text = res.medal and MEDAL_TXT[res.medal] or "FINISHED"
+	settleTime.Text = string.format("TIME %.2fs  ·  RESETS %d", res.time, res.resetCount)
 	if res.nextMedal and res.gapToNext then
-		settleGap.Text = string.format("差 %.2f 秒就是 %s", res.gapToNext, MEDAL_CN[res.nextMedal] or res.nextMedal)
+		settleGap.Text = string.format("%.2fs TO %s", res.gapToNext, MEDAL_TXT[res.nextMedal] or res.nextMedal)
 	else
-		settleGap.Text = "已是最高奖牌!"
+		settleGap.Text = "CHAMPION — TOP MEDAL!"
 	end
 	settlePanel.Visible = true
 end)
 timer:on("go", function() countdownLabel.Text = "GO!" end)
+timer:on("countdown", function() rsfx:play("countdown") end) -- 3-2-1 beep(ADR-50j)
+timer:on("go", function() rsfx:play("go") end)               -- GO=同 beep 升调
+timer:on("finish", function() rsfx:play("finish") end)       -- 终点 sting(临时=beep 族低速)
 
 -- M8.1 分段门:把校验门渲染为可见霓虹拱门 + 过门弹 ±差值(§3.2;参照先用 PB/奖牌线,幽灵实体 M12)
 -- 拱门=纯视觉标记(CanQuery=false 不参与碰撞/贴地);过门判定仍走 RaceTimer 参数化 t。
@@ -520,7 +566,7 @@ chaseLabel.TextSize = 14
 chaseLabel.Font = Enum.Font.GothamMedium
 chaseLabel.Text = ""
 chaseLabel.Parent = gui
-local CHASE_CN = { PB = "PB", Bronze = "铜牌线", Silver = "银牌线", Gold = "金牌线", Author = "作者线" }
+local CHASE_TXT = { PB = "PB", Bronze = "BRONZE", Silver = "SILVER", Gold = "GOLD", Author = "CHAMPION" }
 timer:on("checkpoint", function(p)
 	local idx = p.index
 	local ahead = p.diff and p.diff < 0
@@ -529,7 +575,7 @@ timer:on("checkpoint", function(p)
 	if p.diff then
 		diffLabel.Text = string.format("%s%.2f", ahead and "−" or "+", math.abs(p.diff))
 	else
-		diffLabel.Text = string.format("分段 %d/%d", idx, p.total)
+		diffLabel.Text = string.format("CP %d/%d", idx, p.total)
 	end
 	diffLabel.TextColor3 = col
 	diffT = 0.8
@@ -547,6 +593,8 @@ UIS.InputBegan:Connect(function(input, gp)
 	if gp then return end
 	if input.KeyCode == Enum.KeyCode.R then
 		doRestart()
+	elseif input.KeyCode == Enum.KeyCode.F2 then
+		label.Visible = not label.Visible   -- P4g 调试条开关
 	elseif input.KeyCode == Enum.KeyCode.J
 		or input.UserInputType == Enum.UserInputType.MouseButton1
 		or input.KeyCode == Enum.KeyCode.ButtonR2 then
@@ -559,59 +607,105 @@ end)
 -- 仅触屏设备显示;位置/尺寸=手感域常量供人调;爪握预设+键位自定义=M10 余项。
 local touch = { left = false, right = false, sprint = false, brake = false }
 if UIS.TouchEnabled then
+	-- P4e:本作全程骑行无步行玩法——关系统默认触控(移动摇杆+跳跃钮),跨重生持久;自建按钮不走 TouchGui 不受影响
+	GuiS.TouchControlsEnabled = false
 	local BTN = 78          -- 主键边长(px)
 	local BIG = 96          -- 冲刺键边长(右拇指主键)
 	local M = 22            -- 屏缘留白
-	local function mkBtn(txt, anchorX, posX, posY, size)
+	-- P4g 图标化(人类直令"为移动端按钮绘制 UI 图标"):零资产程序化——圆形键+大字形图标+底部英文小标,
+	-- 功能色描边(转向青/冲刺金/斩紫/刹红/R 白),V1 灰盒不引外部贴图
+	local function mkBtn(icon, sub, accent, anchorX, posX, posY, size)
 		local b = Instance.new("TextButton")
 		b.AnchorPoint = Vector2.new(anchorX, 1)
 		b.Position = UDim2.new(anchorX, posX, 1, posY)
 		b.Size = UDim2.new(0, size, 0, size)
 		b.BackgroundColor3 = Color3.fromRGB(12, 18, 30)
 		b.BackgroundTransparency = 0.45
-		b.TextColor3 = Color3.fromRGB(0, 220, 255)
-		b.TextSize = 26
+		b.TextColor3 = accent
+		b.TextSize = math.floor(size * 0.40)
 		b.Font = Enum.Font.GothamBold
-		b.Text = txt
+		b.Text = icon
 		b.AutoButtonColor = false
 		b.BorderSizePixel = 0
 		local stroke = Instance.new("UIStroke")
-		stroke.Color = Color3.fromRGB(0, 200, 255)
-		stroke.Thickness = 1.5
-		stroke.Transparency = 0.4
+		stroke.Color = accent
+		stroke.Thickness = 2
+		stroke.Transparency = 0.35
 		stroke.Parent = b
 		local corner = Instance.new("UICorner")
-		corner.CornerRadius = UDim.new(0, 14)
+		corner.CornerRadius = UDim.new(0.5, 0)   -- 圆形键
 		corner.Parent = b
+		if sub then
+			local s = Instance.new("TextLabel")
+			s.AnchorPoint = Vector2.new(0.5, 1)
+			s.Position = UDim2.new(0.5, 0, 1, -math.floor(size * 0.08))
+			s.Size = UDim2.new(1, 0, 0, math.floor(size * 0.17))
+			s.BackgroundTransparency = 1
+			s.TextColor3 = accent
+			s.TextTransparency = 0.25
+			s.TextSize = math.max(10, math.floor(size * 0.14))
+			s.Font = Enum.Font.GothamBold
+			s.Text = sub
+			s.Parent = b
+		end
 		b.Parent = gui
 		return b
 	end
 	-- 按住键:InputBegan/Ended 各自捕获独立触点(左右手同时按住互不干扰)
+	-- P4g 卡键根治(人类回报"冲刺流光出现后一直存在"):手指按住后滑出按钮再松手,GuiObject.InputEnded
+	-- 不发(引擎只发给松手时指针所在元素)→ touch.sprint 永久卡 true=冲刺挂死——流光只是可见症状:
+	-- 能量耗尽表现灭、拾晶自动复燃="中间出现"。修=活跃触点集+UIS.InputEnded 全局兜底逐触点核销。
+	-- P4h 追加兜底(cancel 类卡键):切后台/Roblox 菜单夺走触点时引擎不发任何 InputEnded
+	-- (P4g 的 UIS.InputEnded 兜底也收不到)→ 所有按住键触点集整体核销,杜绝"回前台后冲刺挂死"。
+	local holdClears = {}
 	local function bindHold(btn, set)
+		local active = {}
+		local function release(io)
+			if active[io] then
+				active[io] = nil
+				if next(active) == nil then
+					set(false)
+					btn.BackgroundTransparency = 0.45
+				end
+			end
+		end
 		btn.InputBegan:Connect(function(io)
 			if io.UserInputType == Enum.UserInputType.Touch or io.UserInputType == Enum.UserInputType.MouseButton1 then
+				active[io] = true
 				set(true)
 				btn.BackgroundTransparency = 0.15
 			end
 		end)
-		btn.InputEnded:Connect(function(io)
-			if io.UserInputType == Enum.UserInputType.Touch or io.UserInputType == Enum.UserInputType.MouseButton1 then
+		btn.InputEnded:Connect(release)   -- 快路径:松手时仍在钮上
+		UIS.InputEnded:Connect(release)   -- 兜底:滑出按钮后松手(卡键真凶路径)
+		holdClears[#holdClears + 1] = function()
+			if next(active) ~= nil then
+				table.clear(active)
 				set(false)
 				btn.BackgroundTransparency = 0.45
 			end
-		end)
+		end
 	end
-	bindHold(mkBtn("◀", 0, M, -M, BTN), function(v) touch.left = v end)
-	bindHold(mkBtn("▶", 0, M + BTN + 14, -M, BTN), function(v) touch.right = v end)
-	bindHold(mkBtn("冲刺", 1, -M, -M, BIG), function(v) touch.sprint = v end)
-	bindHold(mkBtn("刹", 1, -(M + BIG + 14), -M, BTN), function(v) touch.brake = v end)
-	local slashBtn = mkBtn("⚔ 斩", 1, -M, -(M + BIG + 14), BTN)
+	-- P4d 布局 v2(人类直令:R 移左侧,右侧重排)
+	-- 左拇指:◀▶ 双键转向;R(低频)在 ◀ 正上方留 20px 距防误触
+	-- 右拇指 L 形:拇指常驻「冲刺」(角落最大键,按住),上滚=「⚔斩」(次大,点按),左伸=「刹」(小,低频)
+	local CYAN = Color3.fromRGB(0, 220, 255)
+	bindHold(mkBtn("◀", nil, CYAN, 0, M, -M, BTN), function(v) touch.left = v end)
+	bindHold(mkBtn("▶", nil, CYAN, 0, M + BTN + 14, -M, BTN), function(v) touch.right = v end)
+	local rBtn = mkBtn("↻", nil, Color3.fromRGB(230, 235, 245), 0, M, -(M + BTN + 20), 52)
+	rBtn.Activated:Connect(doRestart)
+	bindHold(mkBtn("⚡", "SPRINT", Color3.fromRGB(255, 205, 80), 1, -M, -M, BIG), function(v) touch.sprint = v end)
+	local slashBtn = mkBtn("⚔", "SLASH", Color3.fromRGB(200, 120, 255), 1, -M, -(M + BIG + 12), 84)
 	slashBtn.Activated:Connect(function()
 		if not timer:isControlLocked() then attack:attack() end
 	end)
-	local rBtn = mkBtn("R", 1, -M, -(M + BIG + BTN + 28), 52)
-	rBtn.TextSize = 20
-	rBtn.Activated:Connect(doRestart)
+	bindHold(mkBtn("▼", "BRAKE", Color3.fromRGB(255, 110, 110), 1, -(M + BIG + 12), -M, 64), function(v) touch.brake = v end)
+	-- P4h:cancel 类兜底接线——两事件都意味着"活跃触点已被系统夺走且不会再有 InputEnded"
+	local function clearAllHolds()
+		for _, f in ipairs(holdClears) do f() end
+	end
+	UIS.WindowFocusReleased:Connect(clearAllHolds)   -- 切后台/来电/系统手势
+	GuiS.MenuOpened:Connect(clearAllHolds)           -- Roblox 主菜单夺触点
 end
 
 -- M4.1(ADR-33):60Hz 定步长累加器——物理/经济/计时全部固定 dt,渲染插值在 RenderStepped
@@ -659,16 +753,18 @@ RunS.Heartbeat:Connect(function(dt)
 	elseif rt.state == "racing" then
 		timerLabel.Text = string.format("%.2f", rt.time)
 	end
-	cpLabel.Text = string.format("检查点 %d/%d", rt.checkpoint, rt.totalCheckpoints)
-	chaseLabel.Text = rt.chasing and ("追赶: " .. (CHASE_CN[rt.chasing] or rt.chasing)) or ""
-	label.Text = string.format("M8 计时  |  速度 %d  |  能量 %d  |  %s%s%s%s  |  A/D·W/Shift冲·S刹·J斩·R重开",
-		math.floor(t.speed + 0.5),
-		math.floor(et.energy + 0.5),
-		rt.state == "finished" and "完赛" or (rt.state == "countdown" and "发车"
-			or (t.wallRiding and "贴墙" or (t.grounded and "地面" or "空中"))),
-		t.sprinting and "·冲刺" or "",
-		et.flow and "·心流!" or "",
-		at.inVolume and "·可斩!" or "")
+	cpLabel.Text = string.format("CP %d/%d", rt.checkpoint, rt.totalCheckpoints)
+	chaseLabel.Text = rt.chasing and ("CHASE " .. (CHASE_TXT[rt.chasing] or rt.chasing)) or ""
+	if label.Visible then   -- P4g:调试条默认隐藏(F2 开关),隐藏时不费字符串
+		label.Text = string.format("DBG  |  SPD %d  |  EN %d  |  %s%s%s%s",
+			math.floor(t.speed + 0.5),
+			math.floor(et.energy + 0.5),
+			rt.state == "finished" and "FINISH" or (rt.state == "countdown" and "START"
+				or (t.wallRiding and "WALL" or (t.grounded and "GROUND" or "AIR"))),
+			t.sprinting and "·SPRINT" or "",
+			et.flow and "·FLOW!" or "",
+			at.inVolume and "·SLASH!" or "")
+	end
 end)
 
 local clock = 0
@@ -722,11 +818,22 @@ RunS.RenderStepped:Connect(function(dt)
 		local pulse = 0.5 + 0.5 * math.sin(clock * 8)
 		readyStroke.Thickness = 1 + 1.5 * pulse
 		readyStroke.Transparency = 0.2 + 0.5 * (1 - pulse)
-		energyText.Text = "READY ▸ 点火"
+		energyText.Text = "READY ▸ IGNITE"
 	else
 		readyStroke.Thickness = 0
 		readyStroke.Transparency = 1
-		energyText.Text = et.flow and "心流 FLOW" or string.format("能量 %d", math.floor(et.energy + 0.5))
+		energyText.Text = et.flow and "FLOW" or string.format("ENERGY %d", math.floor(et.energy + 0.5))
+	end
+	-- 当前速度读数(ADR-52):值变才写字符串、档变才写色(t.speed=studs/s 物理真相,60Hz 定步已平滑)
+	local spdInt = math.floor(t.speed + 0.5)
+	if spdInt ~= speedShown then
+		speedLabel.Text = tostring(spdInt)
+		speedShown = spdInt
+	end
+	local spdTier = et.flow and 2 or (t.sprinting and 1 or 0)
+	if spdTier ~= speedTierShown then
+		speedLabel.TextColor3 = SPEED_TIER_COL[spdTier]
+		speedTierShown = spdTier
 	end
 	-- 蓝区已满 toast 淡出(0.8s)
 	if capFullT > 0 then
@@ -751,16 +858,8 @@ RunS.RenderStepped:Connect(function(dt)
 			end
 		end
 	end
-	-- M7 锻点颜色:可斩(在窗口)=青绿发光,锁定=橘黄,无=淡白低调;命中/失误闪光
+	-- P4d:准星已移除;at 仍供【临时调试】判定盒配色
 	local at = attack:getTelemetry()
-	local rc
-	if attackFlash > 0 then rc = Color3.fromRGB(60, 255, 140)      -- 命中闪青
-	elseif attackFlash < 0 then rc = Color3.fromRGB(255, 70, 70)    -- 失误闪红
-	elseif at.inVolume then rc = Color3.fromRGB(60, 255, 140)       -- 可斩
-	elseif at.telegraph then rc = Color3.fromRGB(255, 180, 40)         -- 锁定
-	else rc = Color3.fromRGB(180, 200, 220) end                     -- 平时
-	local retAlpha = (at.telegraph or attackFlash ~= 0) and 0 or 0.55
-	for _, b in ipairs(retParts) do b.BackgroundColor3 = rc; b.BackgroundTransparency = retAlpha end
 	-- 【临时调试】判定盒渲染:青=平时,绿=盒内有目标(此刻按=必中),白=命中帧
 	if handlingCfg:GetAttribute("Combat_DebugHitbox") then
 		local fw = handlingCfg:GetAttribute("Combat_HitboxForward") or 12
