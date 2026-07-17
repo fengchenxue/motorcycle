@@ -592,6 +592,35 @@ timer:on("checkpoint", function(p)
 end)
 
 -- M8 发车标准化:开局即进入倒计时
+-- P4i 发车就绪门(ADR-53):倒计时之前等【出生区就绪】——Streaming 下"全图加载完"不存在(ADR-51),
+-- 门=出生点脚下真探到 Rideable 面才放行,把 P4a/P4c/P4f 逐个补的加载竞态收敛成不变式
+-- 「绿灯亮=世界一定就绪」。快网/PC 耗时≈0;坏网 10s 兜底放行+warn(不把玩家锁死在黑屏);
+-- Streaming 关闭的旧场景/试炼道=首探即命中,零成本。期间物理本就冻结(P3f idle 不走步)。
+do
+	local CS = game:GetService("CollectionService")
+	local GATE_TIMEOUT = 10
+	local t0 = os.clock()
+	countdownLabel.Text = "LOADING…"
+	if not game:IsLoaded() then game.Loaded:Wait() end
+	pcall(function()   -- 催服务端优先流出生区(拿不到流式语境时静默跳过)
+		player:RequestStreamAroundAsync(SPAWN.Position, GATE_TIMEOUT)
+	end)
+	local rp = RaycastParams.new()
+	rp.FilterType = Enum.RaycastFilterType.Exclude
+	local excl = { bike }
+	if player.Character then excl[#excl + 1] = player.Character end
+	rp.FilterDescendantsInstances = excl
+	local ready = false
+	while os.clock() - t0 < GATE_TIMEOUT do
+		local hit = workspace:Raycast(SPAWN.Position + Vector3.new(0, 6, 0), Vector3.new(0, -60, 0), rp)
+		if hit and CS:HasTag(hit.Instance, "Rideable") then ready = true; break end
+		task.wait(0.1)
+	end
+	if not ready then
+		warn(string.format("[NeonRun] P4i 发车就绪门超时(%ds):出生区可骑面未流入,兜底放行(慢网/低端机留意)", GATE_TIMEOUT))
+	end
+	-- 音效预热不在此重复:ADR-50m 已在启动期 task.spawn(PreloadAsync({bike}))(车根挂全部声源)。
+end
 timer:startCountdown()
 
 UIS.InputBegan:Connect(function(input, gp)
