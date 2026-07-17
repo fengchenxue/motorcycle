@@ -5,7 +5,8 @@ NEON RUN — 流程与状态音效 RaceSFX 冒烟(ADR-50j;Edit 固定 dt=1/60)
   ② 音量键=0:play 不触发(Playing=false,连 Play 都不调)
   ③ 音量键>0:play 触发 + 音量写入
   ④ playAt:克隆挂目标件并播放(Debris 4s 自灭,Edit 内断言克隆存在)
-  ⑤ destroy:声源全清
+  ⑦ BGM(ADR-50n):RaceSFX_music 挂 SoundService 循环;键=0 构造即不播;>0 实时起播+调量;归 0 即停
+  ⑤ destroy:声源全清(含 BGM 与监听断开)
   ⑥ 配置还原
 纯实例断言(Edit 不出声,验 Playing/Volume 属性);钉扎自还原(坑 27/32);require(Clone)(坑 15)。
 ]]
@@ -24,6 +25,7 @@ local PIN = {
 	Sound_PickupVolume = 0, Sound_CountdownVolume = 0, Sound_FinishVolume = 0,
 	Sound_PlayerHitVolume = 0, Sound_RespawnVolume = 0, Sound_FlowVolume = 0,
 	Sound_EmptyClickVolume = 0, Sound_EnemyFireVolume = 0, Sound_GateVolume = 0,
+	Sound_MusicVolume = 0,
 }
 local saved = {}
 for k in pairs(PIN) do saved[k] = hInst:GetAttribute(k) end
@@ -32,6 +34,10 @@ for k, v in pairs(PIN) do hInst:SetAttribute(k, v) end
 local TMP = "NeonRunRaceSfxSmoke_TMP"
 for _, inst in ipairs(workspace:GetChildren()) do
 	if inst.Name:sub(1, #TMP) == TMP then inst:Destroy() end
+end
+-- 上次冒烟/会话残留的 BGM 声源清场(⑦a 按名找,防指认到陈尸)
+for _, x in ipairs(game:GetService("SoundService"):GetChildren()) do
+	if x.Name == "RaceSFX_music" then x:Destroy() end
 end
 local root = Instance.new("Part")
 root.Name = TMP .. "_Root"
@@ -110,14 +116,37 @@ do
 	enemy:Destroy()
 end
 
--- ⑤ destroy 全清
+-- ⑦ BGM(ADR-50n):循环 2D 槽+音量键实时生效
+-- (attribute 信号=Deferred,单帧等待在 Studio 忙时会晚一拍假败——限时轮询到态,消灭瞬态抖动)
+do
+	local function waitUntil(cond, sec)
+		local t0 = os.clock()
+		repeat task.wait() until cond() or os.clock() - t0 > (sec or 0.5)
+		return cond()
+	end
+	local SS = game:GetService("SoundService")
+	local m = SS:FindFirstChild("RaceSFX_music")
+	ok("⑦a BGM 就位(SoundService+Looped+id)", m ~= nil and m.Looped == true
+		and m.SoundId == "rbxassetid://9044545570", m and m.SoundId or "absent")
+	ok("⑦b 键=0 构造即不播", m ~= nil and not m.IsPlaying, m and tostring(m.IsPlaying))
+	hInst:SetAttribute("Sound_MusicVolume", 0.4)
+	ok("⑦c 键>0 实时起播+音量写入", m ~= nil and waitUntil(function()
+		return m.IsPlaying and math.abs(m.Volume - 0.4) < 1e-4
+	end), m and (tostring(m.IsPlaying) .. "/" .. m.Volume))
+	hInst:SetAttribute("Sound_MusicVolume", 0)
+	ok("⑦d 归 0 即停", m ~= nil and waitUntil(function() return not m.IsPlaying end),
+		m and tostring(m.IsPlaying))
+end
+
+-- ⑤ destroy 全清(含 BGM)
 do
 	sfx:destroy()
 	local resid = 0
 	for _, d in ipairs(root:GetChildren()) do
 		if d:IsA("Sound") then resid += 1 end
 	end
-	ok("⑤ destroy:声源全清", resid == 0, resid .. " 件残留")
+	local mGone = game:GetService("SoundService"):FindFirstChild("RaceSFX_music") == nil
+	ok("⑤ destroy:声源全清(含 BGM)", resid == 0 and mGone, resid .. " 件残留 music残留=" .. tostring(not mGone))
 end
 
 -- ⑥ 还原

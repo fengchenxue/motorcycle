@@ -150,6 +150,7 @@ return {
 		FlowVolume = 0.6,       -- 心流升档 surge(点火 whoosh 升调 1.3)
 		EmptyClickVolume = 0.5, -- 空箱干点火咔哒(M8.1 欠账清)
 		EnemyFireVolume = 0.35, -- 敌火 pew(内置占位变调;正式激光待选品)
+		MusicVolume = 0.35,     -- BGM「Night Run」循环(ADR-50n 官方 APM 183s;0=静;备选见 RaceSFX 头注)
 	},
 	VFX = {
 		-- 冲刺速度线(BikeVFX 表现层):相机空间放射线,tele.sprinting 淡入淡出,贴图由远及近流动

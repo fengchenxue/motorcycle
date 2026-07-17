@@ -19,6 +19,13 @@ local SLOTS = {
 	enemyFire = { id = "rbxasset://sounds/electronicpingshort.wav", vol = "EnemyFireVolume", speed = 0.6 }, -- 内置占位:激光 pew
 }
 
+-- BGM(ADR-50n,人类直令"找个有动感的背景音乐"):官方曲库选品(同 ADR-50i 双重验证:
+-- GetProductInfo 验官方号 + Sound IsLoaded 装载验证)。循环 2D 声源挂 SoundService(不走 rootPart
+-- 3D 衰减);音量键 Sound_MusicVolume 实时生效(0=停,>0=起播/调量);跨 R 重开连续不断流。
+-- 备选(已过同管线,换曲改 id 即可):9038252619 Metal Sci-Fi Universe(APM 154s,合成器金属更冲)
+--   / 139421275515323 Neon Skyline(Distrokid 164.7s,复古合成波较柔)。听感/选曲=人类试玩裁决。
+local MUSIC = { id = "rbxassetid://9044545570", vol = "MusicVolume" } -- Night Run(APM,183s,夜驰 Drum&Bass)
+
 local RaceSFX = {}
 RaceSFX.__index = RaceSFX
 
@@ -38,6 +45,24 @@ function RaceSFX.new(rootPart)
 		s.Parent = rootPart
 		self.sounds[name] = s
 	end
+	-- BGM:循环 2D 声源+音量键实时监听(0=停;attribute 信号驱动,面板改值即生效)
+	local music = Instance.new("Sound")
+	music.Name = "RaceSFX_music"
+	music.SoundId = MUSIC.id
+	music.Looped = true
+	music.Parent = game:GetService("SoundService")
+	self.music = music
+	local function applyMusic()
+		local vol = self.cfg.get("Sound", MUSIC.vol)
+		if not vol or vol <= 0 then
+			if music.IsPlaying then music:Stop() end
+		else
+			music.Volume = vol
+			if not music.IsPlaying then music:Play() end
+		end
+	end
+	self._musicConn = nr.Config.Handling:GetAttributeChangedSignal("Sound_" .. MUSIC.vol):Connect(applyMusic)
+	applyMusic()
 	return self
 end
 
@@ -67,6 +92,8 @@ end
 function RaceSFX:destroy()
 	for _, s in pairs(self.sounds) do s:Destroy() end
 	self.sounds = {}
+	if self._musicConn then self._musicConn:Disconnect(); self._musicConn = nil end
+	if self.music then self.music:Destroy(); self.music = nil end
 end
 
 return RaceSFX
